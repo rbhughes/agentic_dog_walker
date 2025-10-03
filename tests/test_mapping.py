@@ -1,7 +1,7 @@
 """Tests for mapping tool."""
 
 import json
-from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -10,7 +10,7 @@ from dog_walker.tools.mapping import create_route_map
 
 
 @pytest.fixture
-def sample_route_data():
+def sample_route_data() -> dict[str, Any]:
     """Sample optimized route data."""
     return {
         "optimized_sequence": [0, 1, 2, 0],
@@ -40,7 +40,7 @@ def sample_route_data():
     }
 
 
-def test_create_map_success(sample_route_data):
+def test_create_map_success(sample_route_data: dict[str, Any]) -> None:
     """Test successful map creation."""
     # Mock route geometry API
     mock_response = Mock()
@@ -70,7 +70,7 @@ def test_create_map_success(sample_route_data):
             mock_save.assert_called_once()
 
 
-def test_create_map_with_text_prefix(sample_route_data):
+def test_create_map_with_text_prefix(sample_route_data: dict[str, Any]) -> None:
     """Test map creation with natural language text before JSON."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -87,7 +87,7 @@ def test_create_map_with_text_prefix(sample_route_data):
             assert "Map saved to:" in result
 
 
-def test_create_map_with_backticks(sample_route_data):
+def test_create_map_with_backticks(sample_route_data: dict[str, Any]) -> None:
     """Test map creation with backtick-wrapped JSON."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -104,7 +104,7 @@ def test_create_map_with_backticks(sample_route_data):
             assert "Map saved to:" in result
 
 
-def test_create_map_no_locations():
+def test_create_map_no_locations() -> None:
     """Test error handling when no locations_for_map."""
     result = create_route_map('{"optimized_sequence": [0, 1, 0]}')
 
@@ -112,14 +112,14 @@ def test_create_map_no_locations():
     assert "No locations_for_map" in result
 
 
-def test_create_map_invalid_json():
+def test_create_map_invalid_json() -> None:
     """Test error handling for invalid JSON."""
     result = create_route_map("{invalid json}")
 
     assert "Map creation failed" in result
 
 
-def test_create_map_api_fallback(sample_route_data):
+def test_create_map_api_fallback(sample_route_data: dict[str, Any]) -> None:
     """Test fallback to straight lines when route API fails."""
     with patch("requests.post", side_effect=Exception("API Error")):
         with patch("folium.Map.save"):
@@ -129,7 +129,7 @@ def test_create_map_api_fallback(sample_route_data):
             assert "Map saved to:" in result
 
 
-def test_create_map_without_api_key(sample_route_data):
+def test_create_map_without_api_key(sample_route_data: dict[str, Any]) -> None:
     """Test map creation when no API key is configured."""
     with patch("dog_walker.tools.mapping.OPENROUTESERVICE_API_KEY", ""):
         with patch("folium.Map.save"):

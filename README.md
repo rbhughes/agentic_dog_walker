@@ -11,6 +11,8 @@ An AI-powered dog walking route planner that uses LangChain and local LLMs to op
 - **Local LLM**: Runs completely locally using Ollama (privacy-first)
 - **Date Planning**: Select any future date for route planning
 
+![Agentic Dog Walker Screenshot](data/screen_shot.png)
+
 ## Quick Start
 
 1. **Install dependencies**:

@@ -1,6 +1,7 @@
 """Tests for route optimizer tool."""
 
 import json
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -9,7 +10,7 @@ from dog_walker.tools.route_optimizer import optimize_dog_walking_route
 
 
 @pytest.fixture
-def sample_visits():
+def sample_visits() -> dict[str, list[dict[str, Any]]]:
     """Sample visit data."""
     return {
         "visits": [
@@ -32,7 +33,7 @@ def sample_visits():
     }
 
 
-def test_optimize_route_basic(sample_visits):
+def test_optimize_route_basic(sample_visits: dict[str, list[dict[str, Any]]]) -> None:
     """Test basic route optimization."""
     # Mock distance matrix API
     mock_response = Mock()
@@ -61,7 +62,9 @@ def test_optimize_route_basic(sample_visits):
         assert data["optimized_sequence"][0] == data["optimized_sequence"][-1]
 
 
-def test_optimize_route_visit_order(sample_visits):
+def test_optimize_route_visit_order(
+    sample_visits: dict[str, list[dict[str, Any]]],
+) -> None:
     """Test that visit order is correctly formatted."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -81,7 +84,9 @@ def test_optimize_route_visit_order(sample_visits):
             assert "duration_minutes" in visit
 
 
-def test_optimize_route_locations_for_map(sample_visits):
+def test_optimize_route_locations_for_map(
+    sample_visits: dict[str, list[dict[str, Any]]],
+) -> None:
     """Test that locations_for_map is correctly formatted."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -102,7 +107,7 @@ def test_optimize_route_locations_for_map(sample_visits):
             assert "duration" in loc
 
 
-def test_optimize_route_with_backticks():
+def test_optimize_route_with_backticks() -> None:
     """Test handling of backtick-wrapped JSON."""
     visits = {
         "visits": [{"pet_name": "Max", "coordinates": [41.88, -87.63], "duration": 30}]
@@ -120,21 +125,21 @@ def test_optimize_route_with_backticks():
         assert "optimized_sequence" in data
 
 
-def test_optimize_route_missing_visits_key():
+def test_optimize_route_missing_visits_key() -> None:
     """Test error handling for missing visits key."""
     result = optimize_dog_walking_route('{"no_visits": []}')
 
     assert "failed" in result.lower()
 
 
-def test_optimize_route_invalid_json():
+def test_optimize_route_invalid_json() -> None:
     """Test error handling for invalid JSON."""
     result = optimize_dog_walking_route("{invalid json}")
 
     assert "failed" in result.lower()
 
 
-def test_optimize_route_api_failure():
+def test_optimize_route_api_failure() -> None:
     """Test handling of API failures (falls back to haversine)."""
     visits = {
         "visits": [

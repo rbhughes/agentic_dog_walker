@@ -8,7 +8,7 @@ import pytest
 from dog_walker.tools.geocoding import geocode_addresses
 
 
-def test_geocode_single_address():
+def test_geocode_single_address() -> None:
     """Test geocoding a single address in JSON array format."""
     mock_response = Mock()
     mock_response.json.return_value = [
@@ -30,7 +30,7 @@ def test_geocode_single_address():
         assert "Chicago" in data[0]["name"]
 
 
-def test_geocode_multiple_addresses():
+def test_geocode_multiple_addresses() -> None:
     """Test geocoding multiple addresses."""
     mock_response = Mock()
     mock_response.json.return_value = [
@@ -45,7 +45,7 @@ def test_geocode_multiple_addresses():
         assert len(data) == 2
 
 
-def test_geocode_python_list_format():
+def test_geocode_python_list_format() -> None:
     """Test that Python list format ['addr'] is handled."""
     mock_response = Mock()
     mock_response.json.return_value = [
@@ -62,7 +62,7 @@ def test_geocode_python_list_format():
         assert data[0]["latitude"] == 41.8781
 
 
-def test_geocode_address_not_found():
+def test_geocode_address_not_found() -> None:
     """Test handling of address not found."""
     mock_response = Mock()
     mock_response.json.return_value = []  # No results
@@ -77,7 +77,7 @@ def test_geocode_address_not_found():
         assert data[0]["error"] == "Not found"
 
 
-def test_geocode_api_error():
+def test_geocode_api_error() -> None:
     """Test handling of API errors."""
     with patch("requests.get", side_effect=Exception("API Error")):
         result = geocode_addresses('["Address"]')
@@ -88,7 +88,7 @@ def test_geocode_api_error():
         assert "API Error" in data[0]["error"]
 
 
-def test_geocode_invalid_input():
+def test_geocode_invalid_input() -> None:
     """Test handling of invalid input format."""
     result = geocode_addresses("{invalid json}")
     data = json.loads(result)

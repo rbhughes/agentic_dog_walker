@@ -7,7 +7,7 @@ import pytest
 from dog_walker.tools.weather import check_weather_impact
 
 
-def test_weather_good_conditions():
+def test_weather_good_conditions() -> None:
     """Test weather check with good conditions."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -28,7 +28,7 @@ def test_weather_good_conditions():
         assert "Good conditions for walking" in result
 
 
-def test_weather_rainy():
+def test_weather_rainy() -> None:
     """Test weather check with rain."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -47,7 +47,7 @@ def test_weather_rainy():
         assert "2.6mm" in result
 
 
-def test_weather_hot():
+def test_weather_hot() -> None:
     """Test weather check with hot conditions."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -65,7 +65,7 @@ def test_weather_hot():
         assert "Hot - bring extra water" in result
 
 
-def test_weather_freezing():
+def test_weather_freezing() -> None:
     """Test weather check with freezing conditions."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -83,7 +83,7 @@ def test_weather_freezing():
         assert "Freezing - use paw protection" in result
 
 
-def test_weather_windy():
+def test_weather_windy() -> None:
     """Test weather check with windy conditions."""
     mock_response = Mock()
     mock_response.json.return_value = {
@@ -102,7 +102,7 @@ def test_weather_windy():
         assert "40.0km/h" in result
 
 
-def test_weather_api_error():
+def test_weather_api_error() -> None:
     """Test handling of API errors."""
     with patch("requests.get", side_effect=Exception("API Error")):
         result = check_weather_impact("41.88,-87.63,2025-10-03")
@@ -111,7 +111,7 @@ def test_weather_api_error():
         assert "API Error" in result
 
 
-def test_weather_invalid_input():
+def test_weather_invalid_input() -> None:
     """Test handling of invalid input format."""
     result = check_weather_impact("invalid")
 

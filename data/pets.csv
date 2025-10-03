@@ -1,6 +1,5 @@
 active,pet_name,address,duration
-True,ziggy,"21 W chestnut st, chicago il",30
-True,butterbee`,"2430 N Cannon Dr, chicago il",60
-True,mortimer,"50 E Erie St, Chicago, IL",30
-True,jesus,"820 N LaSalle Dr, Chicago, IL",33
-True,greg,"320 N Morgan St Suite 600, chicago, il",120
+True,ziggy,"21 W Chestnut St, chicago il",30
+True,abby,"55 E Pearson, chicago il",30
+True,bubba,"2 W Delaware Place, chicago il",60
+True,crabby,"14 W Superior, Chicago IL",30
