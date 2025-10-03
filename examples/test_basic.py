@@ -8,7 +8,7 @@ sys.path.append("src")
 from dog_walker.tools.geocoding import geocoding_tool
 from dog_walker.tools.weather import weather_tool
 from dog_walker.tools.mapping import mapping_tool
-from dog_walker.tools.route_optimizer import route_optimizer_tool
+from dog_walker.tools.route_optimizer import route_optimizer_tool, Visit
 
 
 def test_tools():
@@ -26,7 +26,7 @@ def test_tools():
 
     # Test route optimizer with new visits format
     print("Testing route optimizer...")
-    visits = [
+    visits: list[Visit] = [
         {
             "pet_name": "Max",
             "address": "108 N State St, Chicago",
@@ -63,23 +63,12 @@ def test_tools():
         "optimized_sequence", list(range(len(visits)))
     )
 
-    # Test mapping with optimized route and visit details
+    # Test mapping using locations_for_map from optimizer result
     print("Testing mapping with optimized route...")
-    map_data = {
-        "locations": [
-            {
-                "latitude": visit["coordinates"][0],
-                "longitude": visit["coordinates"][1],
-                "name": visit.get("pet_name", "Unknown"),
-                "address": visit["address"],
-                "pet_name": visit.get("pet_name"),
-                "duration": visit.get("duration"),
-            }
-            for visit in visits
-        ],
-        "route_sequence": optimized_sequence,
-    }
-    map_result = mapping_tool.run(json.dumps(map_data))
+
+    # The optimizer already provides locations_for_map in route order
+    # Just pass the optimizer result directly to the mapping tool
+    map_result = mapping_tool.run(optimizer_result)
     print(f"Mapping result: {map_result}\n")
 
 

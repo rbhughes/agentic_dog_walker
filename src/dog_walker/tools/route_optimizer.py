@@ -1,10 +1,51 @@
 import json
 import requests
-from typing import Any
+from typing import TypedDict
 from ortools.constraint_solver import routing_enums_pb2, pywrapcp  # pyright: ignore[reportMissingTypeStubs]
 import math
 from langchain.tools import Tool
 from dog_walker.utils.config import OPENROUTESERVICE_API_KEY, OPENROUTESERVICE_URL
+
+
+class Visit(TypedDict, total=False):
+    """Input visit structure."""
+
+    pet_name: str
+    address: str
+    coordinates: list[float]  # [lat, lon]
+    duration: int  # minutes
+    time_window: list[float]  # [start_hour, end_hour]
+
+
+class VisitDetail(TypedDict):
+    """Visit detail for output."""
+
+    pet_name: str
+    address: str
+    duration_minutes: int
+
+
+class MapLocation(TypedDict):
+    """Location data for mapping."""
+
+    latitude: float
+    longitude: float
+    pet_name: str
+    address: str
+    duration: int
+
+
+class RouteResult(TypedDict):
+    """Route optimization result."""
+
+    optimized_sequence: list[int]
+    visit_order: list[VisitDetail]
+    locations_for_map: list[MapLocation]
+    total_distance_meters: int
+    estimated_time_hours: float
+    walking_time_minutes: float
+    visit_time_minutes: int
+    uses_real_streets: bool
 
 
 def calculate_distance(
@@ -94,49 +135,30 @@ def get_walking_distance_matrix(coordinates: list[list[float]]) -> list[list[int
 
 def optimize_dog_walking_route(route_data: str) -> str:
     """
-    Optimize dog walking route using TSP with time windows and real walking distances.
+    Optimize dog walking route using TSP and real walking distances.
 
     Args:
-        route_data: JSON string with either:
-            - visits: List of dicts with pet_name, address (optional), coordinates [lat,lon],
-              duration (optional, defaults to 30), time_window (optional [start_hour, end_hour])
-            OR legacy format:
-            - coordinates, time_windows, durations
+        route_data: JSON with "visits" array: [{pet_name, coordinates, duration}]
 
     Returns:
-        Optimized route sequence and timing with visit details
+        JSON with optimized route
     """
     try:
-        data: dict[str, Any] = json.loads(route_data)
+        # Clean input
+        route_data = route_data.strip().strip("`'\"")
+        data = json.loads(route_data)
+        visits: list[Visit] = data["visits"]
 
-        # Check if using new visits format or legacy format
-        if "visits" in data:
-            visits: list[dict[str, Any]] = data["visits"]
-            coordinates: list[list[float]] = [
-                v.get("coordinates", [0, 0]) for v in visits
-            ]
-            durations: list[int] = [v.get("duration", 30) for v in visits]
-            time_windows: list[list[float]] = [v.get("time_window", []) for v in visits]
-            pet_names: list[str] = [
-                v.get("pet_name", f"Pet {i + 1}") for i, v in enumerate(visits)
-            ]
-            addresses: list[str] = [v.get("address", "Unknown") for v in visits]
-        else:
-            # Legacy format
-            coordinates: list[list[float]] = data["coordinates"]  # List of [lat, lon]
-            time_windows: list[list[float]] = data.get(
-                "time_windows", []
-            )  # List of [start_hour, end_hour]
-            durations: list[int] = data.get(
-                "durations", [30] * len(coordinates)
-            )  # Minutes per visit
-            pet_names: list[str] = [f"Pet {i + 1}" for i in range(len(coordinates))]
-            addresses: list[str] = data.get("addresses", ["Unknown"] * len(coordinates))
+        # Extract visit data
+        coordinates = [v.get("coordinates", [0.0, 0.0]) for v in visits]
+        durations = [v.get("duration", 30) for v in visits]
+        pet_names = [v.get("pet_name", f"Pet {i + 1}") for i, v in enumerate(visits)]
+        addresses = [v.get("address", "") for v in visits]
 
         # Get real walking distance matrix from OpenRouteService
         distance_matrix = get_walking_distance_matrix(coordinates)
 
-        # Create routing model with return to start depot
+        # Setup TSP solver
         num_locations = len(coordinates)
         manager = pywrapcp.RoutingIndexManager(num_locations, 1, 0)
         routing = pywrapcp.RoutingModel(manager)
@@ -150,26 +172,7 @@ def optimize_dog_walking_route(route_data: str) -> str:
         transit_callback_index = routing.RegisterTransitCallback(distance_callback)
         routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
-        # Add time constraints if provided
-        if time_windows:
-            time_dimension = routing.AddDimension(
-                transit_callback_index,
-                30 * 60,  # 30 minutes slack
-                12 * 60 * 60,  # 12 hours max
-                False,
-                "Time",
-            )
-
-            for location_idx, time_window in enumerate(time_windows):
-                if len(time_window) == 2:
-                    start_time = int(
-                        time_window[0] * 60 * 60
-                    )  # Convert hours to seconds
-                    end_time = int(time_window[1] * 60 * 60)
-                    index = manager.NodeToIndex(location_idx)
-                    time_dimension.CumulVar(index).SetRange(start_time, end_time)
-
-        # Solve
+        # Solve TSP
         search_parameters = pywrapcp.DefaultRoutingSearchParameters()
         search_parameters.first_solution_strategy = (
             routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
@@ -197,46 +200,41 @@ def optimize_dog_walking_route(route_data: str) -> str:
             walking_time_minutes = total_distance / 83.33
             total_time_hours = (walking_time_minutes + sum(durations)) / 60
 
-            # Build detailed visit order with full location data for mapping
-            visit_details = []
-            locations_for_map = []
+            # Build visit order and map locations
+            visit_details: list[VisitDetail] = []
+            locations_for_map: list[MapLocation] = []
 
-            for idx in route_sequence[:-1]:  # Exclude the duplicate return home
+            for idx in route_sequence[:-1]:  # Exclude return home
                 visit_details.append(
                     {
                         "pet_name": pet_names[idx],
-                        "address": addresses[idx]
-                        if addresses[idx] != "Unknown"
-                        else "",
+                        "address": addresses[idx],
                         "duration_minutes": durations[idx],
                     }
                 )
 
-                # Build location data for map in route order
                 locations_for_map.append(
                     {
                         "latitude": coordinates[idx][0],
                         "longitude": coordinates[idx][1],
                         "pet_name": pet_names[idx],
-                        "address": addresses[idx]
-                        if addresses[idx] != "Unknown"
-                        else "",
+                        "address": addresses[idx],
                         "duration": durations[idx],
                     }
                 )
 
-            return json.dumps(
-                {
-                    "optimized_sequence": route_sequence,
-                    "visit_order": visit_details,
-                    "locations_for_map": locations_for_map,
-                    "total_distance_meters": total_distance,
-                    "estimated_time_hours": round(total_time_hours, 2),
-                    "walking_time_minutes": round(walking_time_minutes, 1),
-                    "visit_time_minutes": sum(durations),
-                    "uses_real_streets": True,
-                }
-            )
+            result: RouteResult = {
+                "optimized_sequence": route_sequence,
+                "visit_order": visit_details,
+                "locations_for_map": locations_for_map,
+                "total_distance_meters": total_distance,
+                "estimated_time_hours": round(total_time_hours, 2),
+                "walking_time_minutes": round(walking_time_minutes, 1),
+                "visit_time_minutes": sum(durations),
+                "uses_real_streets": True,
+            }
+
+            return json.dumps(result)
         else:
             return "No solution found"
 

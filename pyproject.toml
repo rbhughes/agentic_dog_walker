@@ -16,6 +16,8 @@ dependencies = [
     "python-dotenv>=1.1.1",
     "requests>=2.32.5",
     "rich>=14.1.0",
+    "streamlit>=1.50.0",
+    "streamlit-folium>=0.25.3",
     "typer>=0.19.2",
 ]
 
@@ -32,3 +34,17 @@ reportExplicitAny = false
 reportUnknownVariableType = false
 reportUnknownMemberType = false
 reportUnknownArgumentType = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from langchain_ollama import OllamaLLM
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain.prompts import PromptTemplate
+from langchain.tools import BaseTool
 
 from dog_walker.tools.geocoding import geocoding_tool
 from dog_walker.tools.weather import weather_tool
@@ -38,37 +39,44 @@ class DogWalkerAgent:
     to help dog walkers plan efficient routes.
     """
 
-    AGENT_PROMPT = """You are a helpful dog walking assistant that helps optimize routes for dog walkers.
-
-You have access to the following tools:
+    AGENT_PROMPT: str = """You are a dog walking route planner. Follow the steps exactly.
 
 {tools}
 
 Tool names: {tool_names}
 
-WORKFLOW: When planning a route, follow these steps:
-1. Use geocode_addresses to convert addresses to coordinates
-2. Use optimize_route with the geocoded data - it returns JSON with "locations_for_map"
-3. CRITICAL: To create map, take the COMPLETE JSON from optimize_route and pass it directly to create_route_map
-   DO NOT create your own locations or route_sequence arrays
-4. Optionally use check_weather
+STEPS (complete ALL 4 steps before giving Final Answer):
+1. geocode_addresses - convert addresses to coordinates
+2. check_weather - check weather at first location
+3. optimize_route - MUST wrap visits in object: {{"visits": [...]}}
+4. create_route_map - create map using EXACT JSON from step 3
 
-IMPORTANT:
-- For create_route_map: Pass the complete optimize_route output JSON as-is
-- DO NOT manually build locations or route_sequence for the map
+RULES:
+- Do NOT give Final Answer until ALL 4 steps are complete
+- For create_route_map: Action Input = exact JSON from optimize_route (no extra text)
+- Final Answer = human-readable summary (NOT JSON)
+- Weather only noteworthy if: temp < 4°C or > 32°C, rain/snow, wind > 32 km/h
 
-Use the following format:
+FORMAT:
+Question: [question]
+Thought: [what to do next]
+Action: [tool name]
+Action Input: [input]
+Observation: [result]
+... repeat until all 4 steps done ...
+Thought: All 4 steps complete
+Final Answer: [human summary: route order, distance, time, noteworthy weather if any]
 
-Question: the input question you must answer
-Thought: you should always think about what to do
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
-... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question
+EXAMPLES:
+Step 1:
+Action: geocode_addresses
+Action Input: ["123 Main St, Chicago, IL", "456 Oak Ave, Boston, MA"]
 
-Begin!
+Step 3:
+Action: optimize_route
+Action Input: {{"visits": [{{"pet_name": "Max", "coordinates": [41.88, -87.63], "duration": 30}}]}}
+
+NOTE: Use JSON format (double quotes), NOT Python format (single quotes)
 
 Question: {input}
 Thought: {agent_scratchpad}"""
@@ -89,20 +97,20 @@ Thought: {agent_scratchpad}"""
             temperature: LLM temperature for generation
             max_iterations: Maximum agent iterations
         """
-        self.model = model
-        self.base_url = base_url
-        self.temperature = temperature
-        self.max_iterations = max_iterations
+        self.model: str = model
+        self.base_url: str = base_url
+        self.temperature: float = temperature
+        self.max_iterations: int = max_iterations
 
         # Initialize LLM
-        self.llm = OllamaLLM(
+        self.llm: OllamaLLM = OllamaLLM(
             model=self.model,
             base_url=self.base_url,
             temperature=self.temperature,
         )
 
         # Initialize tools
-        self.tools = [
+        self.tools: list[BaseTool] = [
             geocoding_tool,
             weather_tool,
             route_optimizer_tool,
@@ -113,13 +121,14 @@ Thought: {agent_scratchpad}"""
         prompt = PromptTemplate.from_template(self.AGENT_PROMPT)
         agent = create_react_agent(self.llm, self.tools, prompt)
 
-        # Create executor
-        self.agent_executor = AgentExecutor(
+        # Create executor with better error handling
+        self.agent_executor: AgentExecutor = AgentExecutor(
             agent=agent,
             tools=self.tools,
             verbose=True,
             max_iterations=self.max_iterations,
-            handle_parsing_errors=True,
+            handle_parsing_errors="Check your output and make sure it conforms to the format instructions!",
+            return_intermediate_steps=True,
         )
 
         # Session state

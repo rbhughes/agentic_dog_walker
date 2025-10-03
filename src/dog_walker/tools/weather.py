@@ -4,13 +4,13 @@ from langchain.tools import Tool
 
 def check_weather_impact(coordinates_and_time: str) -> str:
     """
-    Check weather conditions and assess impact on dog walking.
+    Check weather conditions for dog walking.
 
     Args:
         coordinates_and_time: "lat,lon,YYYY-MM-DD" format
 
     Returns:
-        Weather assessment and recommendations
+        Weather summary and recommendations
     """
     try:
         lat, lon, date = coordinates_and_time.split(",")
@@ -22,15 +22,16 @@ def check_weather_impact(coordinates_and_time: str) -> str:
                 "longitude": lon,
                 "start_date": date,
                 "end_date": date,
-                "hourly": "temperature_2m,precipitation,wind_speed_10m,weather_code",
+                "hourly": "temperature_2m,precipitation,wind_speed_10m",
                 "timezone": "auto",
             },
+            timeout=10,
         )
-
+        response.raise_for_status()
         data = response.json()
         hourly = data.get("hourly", {})
 
-        # Analyze conditions
+        # Calculate averages
         temps = hourly.get("temperature_2m", [])
         precip = hourly.get("precipitation", [])
         wind = hourly.get("wind_speed_10m", [])
@@ -42,19 +43,13 @@ def check_weather_impact(coordinates_and_time: str) -> str:
         # Generate recommendations
         recommendations = []
         if total_precip > 1.0:
-            recommendations.append(
-                "High precipitation - consider shorter routes or covered areas"
-            )
-        if avg_temp > 25:
-            recommendations.append(
-                "Hot weather - bring extra water and avoid midday walks"
-            )
+            recommendations.append("Rainy - bring rain gear")
+        if avg_temp > 30:
+            recommendations.append("Hot - bring extra water")
         if avg_temp < 0:
-            recommendations.append(
-                "Freezing conditions - shorter walks and paw protection needed"
-            )
-        if max_wind > 20:
-            recommendations.append("Strong winds - avoid open areas")
+            recommendations.append("Freezing - use paw protection")
+        if max_wind > 30:
+            recommendations.append("Windy - avoid open areas")
 
         return f"Weather: Temp {avg_temp:.1f}°C, Precip {total_precip:.1f}mm, Wind {max_wind:.1f}km/h. Recommendations: {'; '.join(recommendations) if recommendations else 'Good conditions for walking'}"
 
@@ -64,6 +59,6 @@ def check_weather_impact(coordinates_and_time: str) -> str:
 
 weather_tool = Tool(
     name="check_weather",
-    description="Check weather conditions for coordinates and date. Input format: 'lat,lon,YYYY-MM-DD'",
+    description="Check weather for coordinates and date. Input: 'lat,lon,YYYY-MM-DD'",
     func=check_weather_impact,
 )

@@ -1,0 +1,8 @@
+{
+  "query": "\n    I need to plan a dog walking route for tomorrow (2025-10-03) in Chicago.\n    Here are my visits:\n    - Max at 108 N State St, 30 minutes\n    - Bella at 2001 N Clark St, 20 minutes\n    - Charlie at 1060 W Addison St, 25 minutes\n    - Luna at 201 E Randolph St, 15 minutes\n\n    Please geocode the addresses, optimize the route, and check the weather.\n    ",
+  "addresses": [],
+  "geocoded_locations": [],
+  "weather_assessment": "",
+  "optimized_route": {},
+  "final_answer": "Agent stopped due to iteration limit or time limit."
+}

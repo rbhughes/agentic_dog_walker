@@ -21,9 +21,10 @@ OPENROUTESERVICE_API_KEY = os.getenv("OPENROUTESERVICE_API_KEY", "")
 OPENROUTESERVICE_URL = "https://api.openrouteservice.org/v2/matrix/foot-walking"
 
 # Ollama configuration
-OLLAMA_MODEL = "llama3.1:8b"
+# OLLAMA_MODEL = "llama3.1:8b"
+OLLAMA_MODEL = "qwen2.5:14b"
 OLLAMA_BASE_URL = "http://localhost:11434"
 
 # Agent settings
-MAX_ITERATIONS = 10
-TEMPERATURE = 0.1
+MAX_ITERATIONS = 15
+TEMPERATURE = 0.0
