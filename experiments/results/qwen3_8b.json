@@ -1,0 +1,187 @@
+[
+  {
+    "fixture": "basic-structure",
+    "first_reply": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_vvifw472",
+          "function": {
+            "index": 0,
+            "name": "check_weather",
+            "arguments": {
+              "city": "Denver",
+              "date": "2026-09-05"
+            }
+          }
+        }
+      ]
+    },
+    "final_reply": {
+      "role": "assistant",
+      "content": "The weather in Denver today is very cold with a temperature of -21\u00b0C, and there is a significant amount of precipitation (40 mm). Additionally, there is strong wind (30 kph). It would not be advisable to walk Rex in these conditions. Consider waiting for better weather or providing Rex with appropriate shelter and warmth."
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": true,
+        "note": "got 'check_weather'"
+      },
+      {
+        "check": "args_valid",
+        "ok": true,
+        "note": ""
+      },
+      {
+        "check": "arg:city",
+        "ok": true,
+        "note": "got 'Denver', want 'Denver'"
+      },
+      {
+        "check": "arg:date",
+        "ok": true,
+        "note": "got '2026-09-05', want '2026-09-05'"
+      },
+      {
+        "check": "mentions:-21",
+        "ok": true,
+        "note": ""
+      }
+    ]
+  },
+  {
+    "fixture": "relative-date",
+    "first_reply": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_cku8yjdt",
+          "function": {
+            "index": 0,
+            "name": "check_weather",
+            "arguments": {
+              "city": "Denver",
+              "date": "2026-09-06"
+            }
+          }
+        }
+      ]
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": true,
+        "note": "got 'check_weather'"
+      },
+      {
+        "check": "args_valid",
+        "ok": true,
+        "note": ""
+      },
+      {
+        "check": "arg:city",
+        "ok": true,
+        "note": "got 'Denver', want 'Denver'"
+      },
+      {
+        "check": "arg:date",
+        "ok": true,
+        "note": "got '2026-09-06', want '2026-09-06'"
+      }
+    ]
+  },
+  {
+    "fixture": "no-tool-trap",
+    "first_reply": {
+      "role": "assistant",
+      "content": "The question about whether a corgi is a good apartment dog for a first-time owner is not related to the tools provided, which are for checking weather forecasts. I can provide general advice:\n\nCorgis can be good apartment dogs for first-time owners if certain conditions are met. They are generally friendly, intelligent, and affectionate. However, they can be quite active and may require regular exercise and mental stimulation. They also tend to bark a lot and can be stubborn at times. If you are prepared to provide them with enough attention, exercise, and training, they can make great companions in an apartment setting."
+    },
+    "checks": [
+      {
+        "check": "no-call",
+        "ok": true,
+        "note": ""
+      }
+    ]
+  },
+  {
+    "fixture": "tool-choice",
+    "first_reply": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_1wbq0tvp",
+          "function": {
+            "index": 0,
+            "name": "check_weather",
+            "arguments": {
+              "city": "Boise",
+              "date": "2026-09-05"
+            }
+          }
+        }
+      ]
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": true,
+        "note": "got 'check_weather'"
+      },
+      {
+        "check": "args_valid",
+        "ok": true,
+        "note": ""
+      },
+      {
+        "check": "arg:city",
+        "ok": true,
+        "note": "got 'Boise', want 'Boise'"
+      }
+    ]
+  },
+  {
+    "fixture": "severity",
+    "first_reply": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_sx00ih9l",
+          "function": {
+            "index": 0,
+            "name": "check_weather",
+            "arguments": {
+              "city": "Denver",
+              "date": "2026-09-05"
+            }
+          }
+        }
+      ]
+    },
+    "final_reply": {
+      "role": "assistant",
+      "content": "Based on the weather forecast for Denver today (2026-09-05), the temperature is -21\u00b0C, and it feels like -33\u00b0C. The wind is blowing at 30 km/h. Due to the extreme cold, it is not safe to walk Rex. The safety reason is frostbite risk for dogs in minutes. You should avoid walking Rex today."
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": true,
+        "note": "got 'check_weather'"
+      },
+      {
+        "check": "args_valid",
+        "ok": true,
+        "note": ""
+      },
+      {
+        "check": "mentions-any",
+        "ok": true,
+        "note": "matched 'not safe'"
+      }
+    ]
+  }
+]

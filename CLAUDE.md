@@ -1,106 +1,76 @@
-# CLAUDE.md
+# agentic_dog_walker — Agent guide (READ FIRST)
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## 0. How we work here — the collaboration contract (MOST IMPORTANT)
 
-## Project Overview
+**This is a LEARNING project. The deliverable is Bryan's understanding of modern LLM
+tool-use design — custom agent loops, native tool calling, and MCP — NOT finished code
+shipped fast.** This overrides the default "autonomous implementer" mode.
 
-Agentic Dog Walker is a LangChain-based application that uses local LLMs (via Ollama) to optimize dog walking routes. It integrates multiple tools for geocoding, weather checking, and route optimization to plan efficient dog walking schedules with real street-based routing and interactive map visualization.
+- **Explain before doing.** Before writing or changing code, explain the concept, the
+  protocol shape (what JSON actually crosses the wire), and the design trade-off in play.
+- **One phase at a time.** Do a single concept/phase, then stop and check in. Bryan
+  drives the pace.
+- **Bryan writes the code that carries the learning** — the agent loop (plan/act/reflect),
+  tool-call parsing/validation, the MCP wiring. I scaffold, explain, and review. When I do
+  write code, walk through it rather than handing over a finished block.
+- **Best practices are an explicit goal** — surface and explain structure/typing/testing
+  decisions as we hit them.
+- Bryan's background: strong data engineering, solid Python; did the original LangChain
+  version of this repo (2024) and the well-spacing PyTorch project (2026). Wants the
+  modern replacement for what LangChain hid from him.
 
-## Development Commands
+## 1. What this project is becoming (decided 2026-09-04)
 
-**Start Ollama (required):**
-```bash
-ollama serve
-```
+Rebuild of the 2024 LangChain dog-walker as a **public demonstration of modern LLM
+tool use**, served at **walker.purr.io**, powered by a local model on Bryan's own
+hardware — no subscription APIs anywhere.
 
-**Run the agent:**
-```bash
-python examples/test_agent.py
-```
+Architecture (three pieces):
 
-**Run tool tests:**
-```bash
-python examples/test_basic.py
-```
+- **fossil** (Dell Latitude 5430, headless Debian 13, on the tailnet at 100.71.229.15,
+  hostname `fossil`): runs Ollama (bound to 100.71.229.15:11434, tailnet-only —
+  deliberate; nothing listens on localhost) and will run the agent as a FastAPI service.
+  Passwordless sudo for user bryan; lid-ignore + sleep masked; unattended-upgrades on.
+- **Tailscale Funnel** exposes ONLY the agent's API publicly (structured plan-walk
+  requests only — never free-form prompts; rate-limited; single-flight queue; ≤6 pets).
+- **walker.purr.io**: static Astro page on Cloudflare Pages (Route 53 CNAME, Bryan
+  clicks the custom-domain step), purr.io family style. Streams the agent's
+  plan/act/reflect trace over SSE; renders the route with MapLibre from GeoJSON.
 
-**Type checking:**
-```bash
-mypy src/
-```
+The agent itself: **hand-rolled loop** (no LangChain) doing plan → act → reflect, using
+Ollama's native tool calling (`/api/chat` with `tools`). Tools are packaged as an **MCP
+server** (geocode/Nominatim, weather/Open-Meteo, TSP routing/OR-Tools +
+OpenRouteService) that the agent consumes as an MCP client — the same server must work
+in any MCP host. Folium is dropped; the route tool returns GeoJSON for the browser.
 
-**Import sorting:**
-```bash
-isort src/
-```
+## 2. Model facts (measured on fossil, 2026-09-04)
 
-**Run tests:**
-```bash
-pytest
-```
+- qwen2.5:7b Q4: **~5.2 tok/s generation** (memory-bandwidth-bound; single-channel
+  DDR4 — a second 16GB SODIMM would roughly double it), prompt eval **~33 tok/s at
+  `num_thread: 10`** (the sweet spot — 12 threads is worse; always pass num_thread 10).
+- No thermal throttling under sustained load.
+- Design consequences: terse system prompts, lean tool schemas, short outputs, rely on
+  Ollama KV cache. Phase 1 bake-off vs qwen3:8b (thinking mode) decides the model.
 
-## Architecture
+## 3. Phases
 
-### Core Components
+1. Model bake-off (qwen2.5:7b vs qwen3:8b) on scripted tool-call fixtures.
+2. MCP tool server: port geocode/weather/route tools from the old repo; offline tests.
+3. The agent loop (plan/act/reflect) + CLI harness. ← the learning core
+4. FastAPI + SSE + hardening (queue, rate limit, input caps).
+5. Funnel + Astro frontend + walker.purr.io CNAME.
+6. README/essay pass; the site explains its own architecture.
 
-**LangChain Agent** (`src/dog_walker/agent.py`): 
-- Class-based agent with state management (`DogWalkerAgent`)
-- Orchestrates geocoding, weather checking, route optimization, and map generation
-- Returns structured `RouteResult` objects
-- Exports results to JSON
-- Uses ReAct agent pattern with Ollama LLM backend
+## 4. Legacy code (the 2024 LangChain version)
 
-**Tools** (`src/dog_walker/tools/`):
-- `geocoding.py`: Converts addresses to coordinates using Nominatim (OpenStreetMap) API
-- `weather.py`: Fetches weather data from Open-Meteo and generates dog-walking safety recommendations
-- `route_optimizer.py`: Uses OR-Tools TSP solver with real walking distances from OpenRouteService
-- `mapping.py`: Creates interactive Folium HTML maps with street-following routes
+`src/dog_walker/` is the old implementation — keep as reference; port tool logic out of
+`tools/` (geocoding.py, weather.py, route_optimizer.py). agent.py (ReAct via
+`OllamaLLM`) and mapping.py (Folium) are being replaced outright. Old commands in git
+history if needed. OPENROUTESERVICE_API_KEY still comes from `.env` (free key).
 
-**Configuration** (`src/dog_walker/utils/config.py`): Centralized settings including:
-- Ollama model: `llama3.1:8b` (localhost:11434)
-- OpenRouteService API key loaded from `.env`
-- Free APIs: Nominatim for geocoding, Open-Meteo for weather
-- Project paths for data and output directories
+## 5. Environment
 
-### Key Technical Details
-
-**Route Optimization**: Uses OR-Tools' TSP solver with:
-- Real walking distances from OpenRouteService Matrix API (not straight-line)
-- TSP solving with optional time windows for appointment constraints
-- Returns `locations_for_map` array pre-ordered for visualization
-- Walking speed assumption: 5 km/h + visit duration
-- Includes return trip to starting location
-
-**Map Visualization**: Creates interactive HTML maps with:
-- Street-following routes from OpenRouteService Directions API
-- Numbered stop markers with pet names and durations
-- Color-coded routes (blue for segments, dashed green for return home)
-- Popup details on markers showing pet info and visit duration
-
-**Weather Assessment**: Checks hourly data for temperature, precipitation, wind speed and generates safety recommendations for dogs
-
-**Agent Flow**: The agent autonomously:
-1. Geocodes addresses using Nominatim
-2. Optimizes routes with real street distances
-3. Creates interactive maps showing the optimized route
-4. Optionally checks weather conditions
-5. Returns structured results with all planning details
-
-## Dependencies
-
-- **LangChain**: Agent framework with ReAct pattern
-- **Ollama**: Local LLM backend (must be running on localhost:11434)
-- **OR-Tools**: TSP route optimization solver
-- **OpenRouteService**: Real street-based walking distances and routes (API key required in `.env`)
-- **Nominatim**: Free address geocoding (OpenStreetMap)
-- **Open-Meteo**: Free weather API
-- **Folium**: Interactive map visualization
-- **uv**: Package manager
-
-## Environment Setup
-
-Create a `.env` file with:
-```
-OPENROUTESERVICE_API_KEY=your_api_key_here
-```
-
-The OpenRouteService API key is required for route optimization and map generation.
+- uv project, Python 3.12. `uv sync`. Tests: `uv run --with pytest python -m pytest`
+  (bare `uv run pytest` can fail to spawn yet exit 0 — never trust it in a && chain).
+- Dev happens on ichabod (Mac) or pepper (Arch); deploy target is fossil via
+  `ssh bryan@fossil` (keys in place from both).

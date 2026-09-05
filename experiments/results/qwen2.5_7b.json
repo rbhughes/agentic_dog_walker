@@ -1,0 +1,123 @@
+[
+  {
+    "fixture": "basic-structure",
+    "first_reply": {
+      "role": "assistant",
+      "content": "To help you decide, I can check the weather forecast for Denver today. Would you like to proceed with that? If so, I will use the check_weather tool to get the information."
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": false,
+        "note": "no tool call at all"
+      }
+    ]
+  },
+  {
+    "fixture": "relative-date",
+    "first_reply": {
+      "role": "assistant",
+      "content": "To help you decide, I'll check the weather forecast for Denver tomorrow. Can you confirm the date you're referring to? If not specified, I'll assume it's tomorrow based on today's date (2026-09-05).\n",
+      "tool_calls": [
+        {
+          "id": "call_xzoa5a4f",
+          "function": {
+            "index": 0,
+            "name": "check_weather",
+            "arguments": {
+              "city": "Denver",
+              "date": "2026-09-06"
+            }
+          }
+        }
+      ]
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": true,
+        "note": "got 'check_weather'"
+      },
+      {
+        "check": "args_valid",
+        "ok": true,
+        "note": ""
+      },
+      {
+        "check": "arg:city",
+        "ok": true,
+        "note": "got 'Denver', want 'Denver'"
+      },
+      {
+        "check": "arg:date",
+        "ok": true,
+        "note": "got '2026-09-06', want '2026-09-06'"
+      }
+    ]
+  },
+  {
+    "fixture": "no-tool-trap",
+    "first_reply": {
+      "role": "assistant",
+      "content": "While corgis can be good apartment dogs, they do have some characteristics that might make them challenging for a first-time owner. Corgis are active, intelligent, and herding dogs, which means they need regular exercise and mental stimulation. They can be stubborn at times, which might require a patient and experienced handler.\n\nHowever, with the right training and socialization, a corgi can be a wonderful companion for an apartment owner. They generally get along well with families and can adapt to smaller living spaces if given enough exercise and attention.\n\nBefore getting a corgi, consider the following:\n- Regular exercise: Corgis need daily walks and playtime.\n- Training: They can be challenging to train due to their independent nature.\n- Grooming: Corgis have a double coat that requires regular brushing.\n\nIf you're prepared for these needs, a corgi could be a great choice for a first-time owner. Would you like more information on corgis or help with something else?"
+    },
+    "checks": [
+      {
+        "check": "no-call",
+        "ok": true,
+        "note": ""
+      }
+    ]
+  },
+  {
+    "fixture": "tool-choice",
+    "first_reply": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_pu3la5iv",
+          "function": {
+            "index": 0,
+            "name": "check_weather",
+            "arguments": {
+              "city": "Boise",
+              "date": "2026-09-05"
+            }
+          }
+        }
+      ]
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": true,
+        "note": "got 'check_weather'"
+      },
+      {
+        "check": "args_valid",
+        "ok": true,
+        "note": ""
+      },
+      {
+        "check": "arg:city",
+        "ok": true,
+        "note": "got 'Boise', want 'Boise'"
+      }
+    ]
+  },
+  {
+    "fixture": "severity",
+    "first_reply": {
+      "role": "assistant",
+      "content": "To help you decide, I can check the weather forecast for Denver today. Would you like to proceed with that?"
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": false,
+        "note": "no tool call at all"
+      }
+    ]
+  }
+]

@@ -1,0 +1,159 @@
+[
+  {
+    "fixture": "basic-structure",
+    "first_reply": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_iq56k1h8",
+          "function": {
+            "index": 0,
+            "name": "check_weather",
+            "arguments": {
+              "city": "Denver",
+              "date": "2026-09-05"
+            }
+          }
+        }
+      ]
+    },
+    "final_reply": {
+      "role": "assistant",
+      "content": "The weather in Denver on 2026-09-05 is expected to be very cold with a temperature of -21\u00b0C. There's also a chance of precipitation with 40mm of rain expected. The wind speed is forecasted to be around 30 kph. Given these conditions, it might not be the best day to walk Rex outside. Consider walking him in the morning when the temperature might be a bit warmer."
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": true,
+        "note": "got 'check_weather'"
+      },
+      {
+        "check": "args_valid",
+        "ok": true,
+        "note": ""
+      },
+      {
+        "check": "arg:city",
+        "ok": true,
+        "note": "got 'Denver', want 'Denver'"
+      },
+      {
+        "check": "arg:date",
+        "ok": true,
+        "note": "got '2026-09-05', want '2026-09-05'"
+      },
+      {
+        "check": "mentions:-21",
+        "ok": true,
+        "note": ""
+      }
+    ]
+  },
+  {
+    "fixture": "relative-date",
+    "first_reply": {
+      "role": "assistant",
+      "content": "To determine if it's a good idea to walk Rex in Denver tomorrow, I need to know the weather forecast for Denver on the specified date. Could you please provide me with the date for tomorrow?"
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": false,
+        "note": "no tool call at all"
+      }
+    ]
+  },
+  {
+    "fixture": "no-tool-trap",
+    "first_reply": {
+      "role": "assistant",
+      "content": "Corgis are known for their friendly and affectionate nature, which can make them good companions for first-time dog owners. However, they are also known for their high energy levels and tendency to bark, which might be challenging for apartment living. They require regular exercise and mental stimulation, which can be harder to provide in an apartment setting. It's important to consider your living situation and daily routine when deciding if a corgi would be a good fit. If you decide to get a corgi, ensure you have a safe and secure outdoor space or a daily walk to meet their exercise needs."
+    },
+    "checks": [
+      {
+        "check": "no-call",
+        "ok": true,
+        "note": ""
+      }
+    ]
+  },
+  {
+    "fixture": "tool-choice",
+    "first_reply": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_k3qq034g",
+          "function": {
+            "index": 0,
+            "name": "check_weather",
+            "arguments": {
+              "city": "Boise",
+              "date": "2026-09-05"
+            }
+          }
+        }
+      ]
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": true,
+        "note": "got 'check_weather'"
+      },
+      {
+        "check": "args_valid",
+        "ok": true,
+        "note": ""
+      },
+      {
+        "check": "arg:city",
+        "ok": true,
+        "note": "got 'Boise', want 'Boise'"
+      }
+    ]
+  },
+  {
+    "fixture": "severity",
+    "first_reply": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_4s14m59v",
+          "function": {
+            "index": 0,
+            "name": "check_weather",
+            "arguments": {
+              "city": "Denver",
+              "date": "2026-09-05"
+            }
+          }
+        }
+      ]
+    },
+    "final_reply": {
+      "role": "assistant",
+      "content": "The weather in Denver on September 5, 2026 is extremely cold with a temperature of -21\u00b0C and a wind chill of -33\u00b0C. The wind is blowing at 30 km/h, which can make it feel even colder. The safety level for walking Rex is DO_NOT_WALK due to the extreme cold and the risk of frostbite for dogs in such conditions. Please consider postponing the walk."
+    },
+    "checks": [
+      {
+        "check": "calls_tool",
+        "ok": true,
+        "note": "got 'check_weather'"
+      },
+      {
+        "check": "args_valid",
+        "ok": true,
+        "note": ""
+      },
+      {
+        "check": "mentions-any",
+        "ok": true,
+        "note": "matched 'do_not_walk'"
+      }
+    ]
+  }
+]
