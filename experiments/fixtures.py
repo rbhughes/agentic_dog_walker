@@ -197,9 +197,19 @@ FIXTURES = [
             # grading of prose is leaky by nature; the real agent will
             # return a STRUCTURED verdict instead. Wide net for triage.
             "prose_mentions_any": [
-                "do not walk", "don't walk", "not walk", "do_not_walk",
-                "not safe", "unsafe", "avoid walk", "skip",
-                "reschedul", "postpon", "stay in", "indoor", "danger",
+                "go not walk",
+                "don't walk",
+                "not walk",
+                "do_not_walk",
+                "not safe",
+                "unsafe",
+                "avoid walk",
+                "skip",
+                "reschedul",
+                "postpon",
+                "stay in",
+                "indoor",
+                "danger",
             ],
         },
     },

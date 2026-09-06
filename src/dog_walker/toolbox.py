@@ -29,6 +29,55 @@ import requests
 # it relays them.
 VERDICTS = ("OK", "CAUTION", "SHORTEN", "DO_NOT_WALK")
 
+COLD_LADDER = [
+    (-5, "CAUTION"),
+    (-10, "SHORTEN"),
+    (-20, "DO_NOT_WALK"),
+]
+HEAT_LADDER = [
+    (20, "CAUTION"),
+    (30, "SHORTEN"),
+    (35, "DO_NOT_WALK"),
+]
+WIND_LADDER = [
+    (35, "CAUTION"),
+    (40, "SHORTEN"),
+    (45, "DO_NOT_WALK"),
+]
+PRECIP_LADDER = [
+    (10, "CAUTION"),
+    (20, "SHORTEN"),
+    (30, "DO_NOT_WALK"),
+]
+
+# Combo escalations: predicates over the window summary that bump the
+# base verdict one rung. Reasons always append, even at the top rung.
+ESCALATIONS = [
+    (
+        "wet-cold",
+        lambda w: w["max_precip_mm"] > 0.5 and w["min_feels_like_c"] <= 2,
+        "rain near freezing soaks the coat and defeats insulation",
+    ),
+]
+
+
+def bump(verdict: str, rungs: int = 1) -> str:
+    """One rung more severe, clamped at DO_NOT_WALK."""
+    i = VERDICTS.index(verdict) + rungs
+    return VERDICTS[min(i, len(VERDICTS) - 1)]
+
+
+def _walk_ladder(value: float, ladder: list, colder_is_worse: bool = False):
+    """Most severe rung a value triggers, or None.
+
+    Ladders are ordered mild -> severe; a rung triggers when the value
+    crosses its threshold (<= for cold ladders, >= otherwise)."""
+    hit = None
+    for threshold, verdict in ladder:
+        if (value <= threshold) if colder_is_worse else (value >= threshold):
+            hit = (threshold, verdict)
+    return hit
+
 
 def fetch_forecast(lat: float, lon: float, date: str) -> dict[str, list]:
     """Hourly forecast arrays for one date (ported from the 2024 tool,
@@ -79,26 +128,57 @@ def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -
                      "max_wind_kph": ...},
         }
 
-    TODO(Bryan): this is yours -- the thresholds ARE the product.
-    Sketch of the questions your if-statements must answer:
-      * at what feels-like temperature does CAUTION become SHORTEN
-        become DO_NOT_WALK? (paw injury and frostbite for dogs start
-        surprisingly warm; look up guidance you trust and cite it in
-        a comment)
-      * heat: hot pavement and heatstroke -- where are those lines?
-      * precipitation: rain is CAUTION-ish, but freezing rain?
-      * wind: when does it amplify cold (use feels_like) vs stand
-        alone as a hazard (debris, stress)?
-      * combinations: does cold + wet deserve a bump the individual
-        numbers don't trigger?
-    Keep every rule one `if` + one reasons.append(...) so each is
-    individually testable.
+    The thresholds (ladders/escalations above) are policy and carry
+    Bryan's signature; this function is just the mechanism:
+    ladders -> base verdict, escalations -> bumps, everything reports
+    its reason. TODO(Bryan): citations for the chosen thresholds.
     """
-    raise NotImplementedError("TODO(Bryan): thresholds")
+    idx = [
+        i
+        for i, t in enumerate(hours["time"])
+        if start_hour <= int(t[11:13]) < end_hour
+    ]
+    if not idx:
+        raise ValueError(f"no forecast hours in window [{start_hour}, {end_hour})")
+
+    pick = lambda key, fn: fn(hours[key][i] for i in idx)  # noqa: E731
+    window = {
+        "start_hour": start_hour,
+        "end_hour": end_hour,
+        "min_feels_like_c": pick("feels_like_c", min),
+        "max_feels_like_c": pick("feels_like_c", max),
+        "max_wind_kph": pick("wind_kph", max),
+        "max_precip_mm": pick("precip_mm", max),
+    }
+
+    verdict, reasons = "OK", []
+    # (value, ladder, colder_is_worse, label) -- heat uses feels-like
+    # too: apparent_temperature folds in humidity, which is the part
+    # of heat that kills dogs
+    ladder_checks = [
+        (window["min_feels_like_c"], COLD_LADDER, True, "feels-like low"),
+        (window["max_feels_like_c"], HEAT_LADDER, False, "feels-like high"),
+        (window["max_wind_kph"], WIND_LADDER, False, "wind"),
+        (window["max_precip_mm"], PRECIP_LADDER, False, "precipitation"),
+    ]
+    for value, ladder, colder, label in ladder_checks:
+        if hit := _walk_ladder(value, ladder, colder):
+            threshold, rung = hit
+            reasons.append(f"{label} {value:g} crosses {rung} threshold {threshold:g}")
+            if VERDICTS.index(rung) > VERDICTS.index(verdict):
+                verdict = rung
+
+    for name, hits, why in ESCALATIONS:
+        if hits(window):
+            verdict = bump(verdict)
+            reasons.append(f"{name}: {why}")
+
+    return {"verdict": verdict, "reasons": reasons, "window": window}
 
 
-def check_weather(lat: float, lon: float, date: str,
-                  start_hour: int = 8, end_hour: int = 20) -> dict[str, Any]:
+def check_weather(
+    lat: float, lon: float, date: str, start_hour: int = 8, end_hour: int = 20
+) -> dict[str, Any]:
     """The tool the agent (and MCP facade) exposes: fetch + assess.
 
     Note the typed signature -- the 2024 version took one comma-packed
