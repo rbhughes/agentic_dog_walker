@@ -223,12 +223,101 @@ CHECK_WEATHER_SCHEMA = {
 }
 
 # ---------------------------------------------------------------------
+# geocoding (Nominatim / OpenStreetMap)
+# ---------------------------------------------------------------------
+
+# Nominatim usage policy (https://operations.osmfoundation.org/policies/nominatim/):
+# max 1 request/second, identifying User-Agent, cache results. The cap
+# on batch size doubles as an abuse limit once this is public.
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+USER_AGENT = "agentic-dog-walker/2.0 (walker.purr.io)"
+MAX_ADDRESSES = 12
+_geocode_cache: dict[str, dict] = {}
+
+
+def geocode_addresses(addresses: list[str]) -> dict[str, Any]:
+    """Convert street addresses to coordinates.
+
+    Batched (one tool call = one model round-trip, however many
+    addresses). Failed addresses return an "error" entry in their slot
+    rather than raising -- the agent needs to know WHICH address broke.
+
+    Compare legacy/dog_walker_2024/tools/geocoding.py, whose first 15
+    lines un-mangle a single string that might be JSON, Python-repr,
+    or bare text. Typed parameters made that layer evaporate.
+    """
+    import time
+
+    if len(addresses) > MAX_ADDRESSES:
+        return {"error": f"too many addresses (max {MAX_ADDRESSES})"}
+
+    results = []
+    for address in addresses:
+        key = address.strip().lower()
+        if key in _geocode_cache:
+            results.append(_geocode_cache[key])
+            continue
+        try:
+            resp = requests.get(
+                NOMINATIM_URL,
+                params={"q": address, "format": "json", "limit": 1},
+                headers={"User-Agent": USER_AGENT},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data:
+                hit = {
+                    "address": address,
+                    "lat": float(data[0]["lat"]),
+                    "lon": float(data[0]["lon"]),
+                    "display_name": data[0].get("display_name", address),
+                }
+            else:
+                hit = {"address": address, "error": "not found"}
+        except requests.RequestException as e:
+            hit = {"address": address, "error": str(e)}
+        else:
+            _geocode_cache[key] = hit
+        results.append(hit)
+        time.sleep(1.1)  # Nominatim: max 1 req/s, no exceptions
+
+    return {"results": results}
+
+
+GEOCODE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "geocode_addresses",
+        "description": (
+            "Convert street addresses to lat/lon coordinates. Batched: "
+            "pass ALL addresses in one call. Each result carries either "
+            "lat/lon or an error for that address."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "addresses": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": MAX_ADDRESSES,
+                    "description": "full street addresses",
+                },
+            },
+            "required": ["addresses"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+# ---------------------------------------------------------------------
 # registry: name -> (callable, schema). Agent + MCP facade both read
 # this; adding a tool means adding a function, a schema, and one row.
 # ---------------------------------------------------------------------
 
 REGISTRY: dict[str, tuple[Any, dict]] = {
     "check_weather": (check_weather, CHECK_WEATHER_SCHEMA),
-    # "geocode_address": ...   (Phase 2, next step)
+    "geocode_addresses": (geocode_addresses, GEOCODE_SCHEMA),
     # "optimize_route": ...    (Phase 2, after that)
 }
