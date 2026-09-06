@@ -38,10 +38,17 @@ Architecture (three pieces):
   plan/act/reflect trace over SSE; renders the route with MapLibre from GeoJSON.
 
 The agent itself: **hand-rolled loop** (no LangChain) doing plan → act → reflect, using
-Ollama's native tool calling (`/api/chat` with `tools`). Tools are packaged as an **MCP
-server** (geocode/Nominatim, weather/Open-Meteo, TSP routing/OR-Tools +
-OpenRouteService) that the agent consumes as an MCP client — the same server must work
-in any MCP host. Folium is dropped; the route tool returns GeoJSON for the browser.
+Ollama's native tool calling (`/api/chat` with `tools`).
+
+**Tool architecture: FACADE design (decided 2026-09-05, after reviewing MCP-in-production
+criticism).** Tools (geocode/Nominatim, weather/Open-Meteo with deterministic safety
+flags, TSP routing/OR-Tools + OpenRouteService) live as a plain Python module — typed
+functions + JSON schemas — that the agent dispatches IN-PROCESS (we own both ends of the
+wire; MCP-client plumbing for our own local tools would be cargo-culting). A thin **MCP
+server facade** (official SDK / FastMCP) wraps the SAME functions as a separate entry
+point, so any MCP host (Claude Desktop etc.) can plug in — the interop boundary is what
+MCP is actually for, and the site writeup says exactly that. Folium is dropped; the
+route tool returns GeoJSON for the browser.
 
 ## 2. Model facts (measured on fossil, 2026-09-04)
 
@@ -54,12 +61,17 @@ in any MCP host. Folium is dropped; the route tool returns GeoJSON for the brows
 
 ## 3. Phases
 
-1. Model bake-off (qwen2.5:7b vs qwen3:8b) on scripted tool-call fixtures.
-2. MCP tool server: port geocode/weather/route tools from the old repo; offline tests.
+1. ✅ Model bake-off DONE 2026-09-05 (commit 48d7be2): **qwen3:8b selected, 5/5**
+   (qwen2.5:3b 4/5 fails relative dates; qwen2.5:7b 3/5 defers/asks permission).
+   Fixtures in experiments/ double as a regression suite (~2 min) — rerun after any
+   system-prompt change. Prose checks are triage-only (see fixtures.py docstring).
+2. Tools module (plain Python: geocode/weather/route ported from old repo, safety
+   flags in weather) + thin MCP server facade over the same functions; offline tests.
 3. The agent loop (plan/act/reflect) + CLI harness. ← the learning core
 4. FastAPI + SSE + hardening (queue, rate limit, input caps).
 5. Funnel + Astro frontend + walker.purr.io CNAME.
-6. README/essay pass; the site explains its own architecture.
+6. README/essay pass; the site explains its own architecture (including the
+   facade rationale: native calling where we own both ends, MCP at the boundary).
 
 ## 4. Legacy code (the 2024 LangChain version)
 
