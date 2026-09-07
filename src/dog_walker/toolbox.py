@@ -325,11 +325,213 @@ GEOCODE_SCHEMA = {
 
 # ---------------------------------------------------------------------
 # registry: name -> (callable, schema). Agent + MCP facade both read
+# ---------------------------------------------------------------------
+# route optimization (OR-Tools + OpenRouteService)
+# ---------------------------------------------------------------------
+
+ORS_MATRIX_URL = "https://api.openrouteservice.org/v2/matrix/foot-walking"
+ORS_DIRECTIONS_URL = (
+    "https://api.openrouteservice.org/v2/directions/foot-walking/geojson"
+)
+MAX_STOPS = 10          # abuse cap for the public API, and ORS-polite
+WALK_SPEED_M_PER_MIN = 83.33   # 5 km/h
+
+
+def _ors_key() -> str:
+    import os
+
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+    return os.environ.get("OPENROUTESERVICE_API_KEY", "")
+
+
+def _haversine_m(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Straight-line ('as the crow flies') metres between two lat/lon
+    points -- the honest fallback when street distances are unavailable."""
+    import math
+
+    lat1, lon1, lat2, lon2 = map(math.radians, (*a, *b))
+    h = (
+        math.sin((lat2 - lat1) / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    )
+    return 6_371_000 * 2 * math.asin(math.sqrt(h))
+
+
+def _walking_matrix(coords: list[tuple[float, float]]) -> tuple[list[list[int]], bool]:
+    """All-pairs walking distances in metres.
+
+    Tries OpenRouteService (real streets); on any failure falls back to
+    straight-line distances. Returns (matrix, uses_real_streets) -- the
+    flag travels all the way to the user, never silently degraded.
+    """
+    key = _ors_key()
+    if key:
+        try:
+            resp = requests.post(
+                ORS_MATRIX_URL,
+                json={
+                    # ORS speaks [lon, lat] -- the GeoJSON axis order,
+                    # opposite of the [lat, lon] convention everywhere else
+                    "locations": [[lon, lat] for lat, lon in coords],
+                    "metrics": ["distance"],
+                },
+                headers={"Authorization": key},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            rows = resp.json()["distances"]
+            return [[int(d) for d in row] for row in rows], True
+        except (requests.RequestException, KeyError):
+            pass
+    n = len(coords)
+    matrix = [
+        [0 if i == j else int(_haversine_m(coords[i], coords[j])) for j in range(n)]
+        for i in range(n)
+    ]
+    return matrix, False
+
+
+def _solve_order(matrix: list[list[int]]) -> list[int]:
+    """Best visiting order for the distance matrix (the Traveling
+    Salesman step), via OR-Tools. Starts and ends at stop 0 -- the
+    walker's own start point. Exact for our tiny stop counts."""
+    from ortools.constraint_solver import pywrapcp, routing_enums_pb2
+
+    n = len(matrix)
+    manager = pywrapcp.RoutingIndexManager(n, 1, 0)  # n stops, 1 walker, depot 0
+    routing = pywrapcp.RoutingModel(manager)
+
+    def distance_callback(from_index: int, to_index: int) -> int:
+        return matrix[manager.IndexToNode(from_index)][manager.IndexToNode(to_index)]
+
+    transit = routing.RegisterTransitCallback(distance_callback)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit)
+    params = pywrapcp.DefaultRoutingSearchParameters()
+    params.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    )
+    solution = routing.SolveWithParameters(params)
+
+    order, index = [], routing.Start(0)
+    while not routing.IsEnd(index):
+        order.append(manager.IndexToNode(index))
+        index = solution.Value(routing.NextVar(index))
+    return order  # e.g. [0, 3, 1, 2]; return to 0 is implicit
+
+
+def _street_geometry(coords_in_order: list[tuple[float, float]]) -> dict | None:
+    """Street-following path through the ordered stops, as a GeoJSON
+    LineString the browser map draws directly. None on any failure --
+    the route itself is already decided; drawing degrades to straight
+    lines client-side."""
+    key = _ors_key()
+    if not key:
+        return None
+    try:
+        resp = requests.post(
+            ORS_DIRECTIONS_URL,
+            json={"coordinates": [[lon, lat] for lat, lon in coords_in_order]},
+            headers={"Authorization": key},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()["features"][0]["geometry"]
+    except (requests.RequestException, KeyError, IndexError):
+        return None
+
+
+def optimize_route(stops: list[dict]) -> dict[str, Any]:
+    """Best walking order through the stops, with real-street distances
+    when OpenRouteService is available.
+
+    Each stop: {"name": ..., "lat": ..., "lon": ..., "visit_minutes": ...}.
+    Stop 0 is the walk's start and end (round trip).
+
+    Returns order, per-leg and total distances, time estimates, the
+    uses_real_streets honesty flag, and (when available) the street
+    path as a GeoJSON LineString for the map.
+    """
+    if not 2 <= len(stops) <= MAX_STOPS:
+        return {"error": f"need 2-{MAX_STOPS} stops, got {len(stops)}"}
+
+    coords = [(float(s["lat"]), float(s["lon"])) for s in stops]
+    matrix, real_streets = _walking_matrix(coords)
+    order = _solve_order(matrix)
+
+    loop = order + [0]  # explicit return home
+    legs = []
+    for a, b in zip(loop, loop[1:]):
+        legs.append(
+            {
+                "from": stops[a]["name"],
+                "to": stops[b]["name"],
+                "meters": matrix[a][b],
+            }
+        )
+    total_m = sum(leg["meters"] for leg in legs)
+    walk_min = total_m / WALK_SPEED_M_PER_MIN
+    visit_min = sum(int(s.get("visit_minutes", 0)) for s in stops)
+
+    return {
+        "order": [stops[i]["name"] for i in order],
+        "legs": legs,
+        "total_walk_meters": total_m,
+        "walking_minutes": round(walk_min),
+        "visit_minutes": visit_min,
+        "total_minutes": round(walk_min) + visit_min,
+        "uses_real_streets": real_streets,
+        "geometry": _street_geometry([coords[i] for i in loop]),
+    }
+
+
+OPTIMIZE_ROUTE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "optimize_route",
+        "description": (
+            "Find the best walking order through the stops (round trip "
+            "from stop 0). Returns order, distances, time estimates, and "
+            "street-path geometry for the map. Call AFTER geocoding."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "stops": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": MAX_STOPS,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "lat": {"type": "number"},
+                            "lon": {"type": "number"},
+                            "visit_minutes": {"type": "integer"},
+                        },
+                        "required": ["name", "lat", "lon"],
+                        "additionalProperties": False,
+                    },
+                    "description": "stop 0 = start/end of the walk",
+                },
+            },
+            "required": ["stops"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+# ---------------------------------------------------------------------
+# registry: name -> (callable, schema). Agent + MCP facade both read
 # this; adding a tool means adding a function, a schema, and one row.
 # ---------------------------------------------------------------------
 
 REGISTRY: dict[str, tuple[Any, dict]] = {
     "check_weather": (check_weather, CHECK_WEATHER_SCHEMA),
     "geocode_addresses": (geocode_addresses, GEOCODE_SCHEMA),
-    # "optimize_route": ...    (Phase 2, after that)
+    "optimize_route": (optimize_route, OPTIMIZE_ROUTE_SCHEMA),
 }
