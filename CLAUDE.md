@@ -79,6 +79,17 @@ route tool returns GeoJSON for the browser.
    ROADMAP: per-stop weather checks against those intervals (agent-side, Phase 3);
    pet time-window constraints via OR-Tools time dimension (future).
 3. The agent loop (plan/act/reflect) + CLI harness. ← the learning core
+   **Phase-3 syllabus, extracted from live lesson-2 traces (2026-09-07/08):**
+   (a) validate-before-dispatch with bounce-and-retry (jsonschema against REGISTRY
+   schemas; lesson 2 dispatches raw). (b) The reflect loop-back: walk intervals
+   only exist AFTER optimize_route returns the timeline, so weather must be
+   re-checked per dog's actual interval/location afterward — an information-
+   dependency no upfront planning fixes (think-on run checked per-dog locations
+   spontaneously but still used the 13:00 departure hour for a 16:09 walk).
+   (c) Reasoning mode measurably improves orchestration (think-off: one global
+   weather check; think-on: per-dog checks, parallel calls in one round) → use
+   think for the plan step, not for mechanical calls. (d) UI takes timelines from
+   tool output, never from the model's retelling (it drops details).
 4. FastAPI + SSE + hardening (queue, rate limit, input caps).
 5. Funnel + Astro frontend + walker.purr.io CNAME.
 6. README/essay pass; the site explains its own architecture (including the
