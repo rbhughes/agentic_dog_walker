@@ -445,16 +445,27 @@ def _street_geometry(coords_in_order: list[tuple[float, float]]) -> dict | None:
         return None
 
 
-def optimize_route(stops: list[dict]) -> dict[str, Any]:
-    """Best walking order through the stops, with real-street distances
-    when OpenRouteService is available.
+WALK_DURATIONS = (20, 30, 60)  # the products a dog walker actually sells
 
-    Each stop: {"name": ..., "lat": ..., "lon": ..., "visit_minutes": ...}.
-    Stop 0 is the walk's start and end (round trip).
 
-    Returns order, per-leg and total distances, time estimates, the
-    uses_real_streets honesty flag, and (when available) the street
-    path as a GeoJSON LineString for the map.
+def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str, Any]:
+    """Best transit order through the stops, plus the resulting schedule.
+
+    Each stop: {"name": ..., "lat": ..., "lon": ..., "walk_minutes": ...}
+    where walk_minutes is that dog's own walk (20/30/60), taken as a
+    loop from its home -- the walker arrives, walks the dog out and
+    back, returns it, and transits to the next stop. Stop 0 is the
+    walker's start/end and takes no walk_minutes.
+
+    Because each dog's loop anchors to its own home, the visiting
+    order is pure geography (the Traveling Salesman solve over transit
+    distances); the durations shape the TIMELINE -- when the walker
+    reaches each dog and the interval that dog is actually outside.
+    That per-stop interval is what downstream weather checks and pet
+    time-window constraints consume.
+
+    start_time ("HH:MM", optional) renders the timeline as clock
+    times; otherwise it's minutes-from-start.
     """
     if not 2 <= len(stops) <= MAX_STOPS:
         return {"error": f"need 2-{MAX_STOPS} stops, got {len(stops)}"}
@@ -474,16 +485,44 @@ def optimize_route(stops: list[dict]) -> dict[str, Any]:
             }
         )
     total_m = sum(leg["meters"] for leg in legs)
-    walk_min = total_m / WALK_SPEED_M_PER_MIN
-    visit_min = sum(int(s.get("visit_minutes", 0)) for s in stops)
+    transit_min = total_m / WALK_SPEED_M_PER_MIN
 
+    # timeline: transit legs and per-dog walk loops, in visit order
+    def clock(minutes: float) -> Any:
+        """Render an offset as HH:MM if start_time given, else minutes."""
+        if start_time is None:
+            return round(minutes)
+        h, m = map(int, start_time.split(":"))
+        total = h * 60 + m + minutes
+        return f"{int(total // 60) % 24:02d}:{int(total % 60):02d}"
+
+    timeline, t = [], 0.0
+    for pos, (a, b) in enumerate(zip(loop, loop[1:])):
+        t += matrix[a][b] / WALK_SPEED_M_PER_MIN
+        if b == 0:
+            timeline.append({"stop": stops[0]["name"], "arrive": clock(t)})
+            break
+        walk = int(stops[b].get("walk_minutes", 0))
+        timeline.append(
+            {
+                "stop": stops[b]["name"],
+                "arrive": clock(t),
+                "walk_start": clock(t),
+                "walk_end": clock(t + walk),
+                "walk_minutes": walk,
+            }
+        )
+        t += walk
+
+    dog_min = sum(int(s.get("walk_minutes", 0)) for s in stops)
     return {
         "order": [stops[i]["name"] for i in order],
         "legs": legs,
+        "timeline": timeline,
         "total_walk_meters": total_m,
-        "walking_minutes": round(walk_min),
-        "visit_minutes": visit_min,
-        "total_minutes": round(walk_min) + visit_min,
+        "transit_minutes": round(transit_min),
+        "dog_walk_minutes": dog_min,
+        "total_minutes": round(transit_min + dog_min),
         "uses_real_streets": real_streets,
         "geometry": _street_geometry([coords[i] for i in loop]),
     }
@@ -494,9 +533,11 @@ OPTIMIZE_ROUTE_SCHEMA = {
     "function": {
         "name": "optimize_route",
         "description": (
-            "Find the best walking order through the stops (round trip "
-            "from stop 0). Returns order, distances, time estimates, and "
-            "street-path geometry for the map. Call AFTER geocoding."
+            "Find the best transit order through the stops (round trip "
+            "from stop 0) and the resulting schedule: when the walker "
+            "reaches each dog and each dog's walk interval. Returns "
+            "order, legs, timeline, distances, and street-path geometry "
+            "for the map. Call AFTER geocoding."
         ),
         "parameters": {
             "type": "object",
@@ -511,12 +552,23 @@ OPTIMIZE_ROUTE_SCHEMA = {
                             "name": {"type": "string"},
                             "lat": {"type": "number"},
                             "lon": {"type": "number"},
-                            "visit_minutes": {"type": "integer"},
+                            "walk_minutes": {
+                                "type": "integer",
+                                "enum": list(WALK_DURATIONS),
+                                "description": (
+                                    "this dog's walk length, looped "
+                                    "from its own home"
+                                ),
+                            },
                         },
                         "required": ["name", "lat", "lon"],
                         "additionalProperties": False,
                     },
-                    "description": "stop 0 = start/end of the walk",
+                    "description": "stop 0 = walker's start/end, no walk_minutes",
+                },
+                "start_time": {
+                    "type": "string",
+                    "description": "HH:MM; renders the timeline as clock times",
                 },
             },
             "required": ["stops"],

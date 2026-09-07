@@ -72,6 +72,12 @@ route tool returns GeoJSON for the browser.
    system-prompt change. Prose checks are triage-only (see fixtures.py docstring).
 2. Tools module (plain Python: geocode/weather/route ported from old repo, safety
    flags in weather) + thin MCP server facade over the same functions; offline tests.
+   **Walk-duration model (Bryan, 2026-09-07):** each dog's walk is 20/30/60 min
+   (WALK_DURATIONS enum), taken as a solo loop from its own home — no group walks,
+   ever solo. So visiting order stays pure geography (TSP over transit), and
+   durations drive the TIMELINE (optimize_route returns per-dog walk intervals).
+   ROADMAP: per-stop weather checks against those intervals (agent-side, Phase 3);
+   pet time-window constraints via OR-Tools time dimension (future).
 3. The agent loop (plan/act/reflect) + CLI harness. ← the learning core
 4. FastAPI + SSE + hardening (queue, rate limit, input caps).
 5. Funnel + Astro frontend + walker.purr.io CNAME.
