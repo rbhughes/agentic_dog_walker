@@ -50,6 +50,7 @@ PRECIP_LADDER = [
     (30, "DO_NOT_WALK"),
 ]
 
+
 def _wet_cold(window: dict) -> bool:
     """Rain near freezing: a soaked coat loses its insulation, so the
     combination is worse than either number alone suggests."""
@@ -144,6 +145,7 @@ def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -
 
     def pick(key: str, fn) -> float:
         """Reduce one forecast array over the in-window hours."""
+
         return fn(hours[key][i] for i in idx)
 
     window = {
@@ -167,16 +169,22 @@ def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -
     ]
     for value, ladder, colder, label in ladder_checks:
         if hit := _walk_ladder(value, ladder, colder):
+            # print(f"  hit is currently {hit}")
             threshold, rung = hit
             reasons.append(f"{label} {value:g} crosses {rung} threshold {threshold:g}")
             if VERDICTS.index(rung) > VERDICTS.index(verdict):
                 verdict = rung
+
+    # print(f"verdict after _walk_ladder: {verdict}")
 
     for name, hits, why in ESCALATIONS:
         if hits(window):
             verdict = bump(verdict)
             reasons.append(f"{name}: {why}")
 
+    # print(f"verdict after ESCALATIONS: {verdict}")
+
+    # print({"verdict": verdict, "reasons": reasons, "window": window})
     return {"verdict": verdict, "reasons": reasons, "window": window}
 
 
