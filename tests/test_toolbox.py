@@ -252,3 +252,115 @@ def test_check_weather_is_fetch_then_assess(monkeypatch):
     monkeypatch.setattr("dog_walker.toolbox.fetch_forecast", fake_forecast)
     result = check_weather(51.0, -114.0, "2026-09-07", 8, 20)
     assert result["verdict"] == "DO_NOT_WALK"
+
+
+# ---------------------------------------------------------------------
+# route optimizer: the offline parts
+# ---------------------------------------------------------------------
+
+from dog_walker.toolbox import (  # noqa: E402
+    _haversine_m,
+    _solve_order,
+    optimize_route,
+)
+
+
+def test_haversine_knows_a_degree_of_latitude():
+    # one degree of latitude is ~111.2 km everywhere on Earth
+    d = _haversine_m((41.0, -87.0), (42.0, -87.0))
+    assert d == pytest.approx(111_200, rel=0.01)
+
+
+def test_solver_unscrambles_stops_on_a_line():
+    # four stops on a straight line, listed scrambled: 0, 2, 3, 1.
+    # visiting in line order (0->1->2->3->home) is obviously shortest,
+    # and the solver must find it from the matrix alone.
+    line = [0, 2, 3, 1]
+
+    def dist(i, j):
+        return abs(line[i] - line[j]) * 1000
+
+    matrix = [[dist(i, j) for j in range(4)] for i in range(4)]
+    assert _solve_order(matrix) == [0, 3, 1, 2]  # positions of 1, 2, 3
+
+
+LINE_MATRIX = [
+    [0, 833, 1666, 2499],
+    [833, 0, 833, 1666],
+    [1666, 833, 0, 833],
+    [2499, 1666, 833, 0],
+]
+
+
+def fake_line_matrix(coords):
+    """Stand-in for _walking_matrix: 833m between neighbours on a line
+    (= exactly 10 minutes at 5 km/h), flagged as NOT real streets."""
+    return LINE_MATRIX, False
+
+
+def no_geometry(coords_in_order):
+    """Stand-in for _street_geometry: pretend ORS is unreachable."""
+    return None
+
+
+STOPS = [
+    {"name": "home", "lat": 0.0, "lon": 0.0},
+    {"name": "Daisy", "lat": 0.0, "lon": 0.01, "walk_minutes": 20},
+    {"name": "Rex", "lat": 0.0, "lon": 0.02, "walk_minutes": 60},
+    {"name": "Biscuit", "lat": 0.0, "lon": 0.03, "walk_minutes": 30},
+]
+
+
+@pytest.fixture()
+def line_route(monkeypatch):
+    """optimize_route over the hand-checkable line world."""
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    return optimize_route(STOPS, start_time="13:00")
+
+
+def test_route_visits_the_line_in_order(line_route):
+    assert line_route["order"] == ["home", "Daisy", "Rex", "Biscuit"]
+
+
+def test_route_legs_include_the_trip_home(line_route):
+    assert line_route["legs"][-1]["to"] == "home"
+    assert len(line_route["legs"]) == 4  # 3 outbound + return
+
+
+def test_timeline_is_hand_checkable(line_route):
+    # 833m legs = 10 min each. 13:00 depart -> Daisy 13:09 (rounding),
+    # 20 min walk -> 13:29; +10 transit -> Rex 13:39, 60 min -> 14:39;
+    # +10 -> Biscuit 14:49, 30 min -> 15:19; 2499m home = 30 min -> 15:49
+    tl = line_route["timeline"]
+    assert [row["stop"] for row in tl] == ["Daisy", "Rex", "Biscuit", "home"]
+    assert tl[0]["walk_start"] == "13:09"
+    assert tl[0]["walk_end"] == "13:29"
+    assert tl[1]["walk_start"] == "13:39"
+    assert tl[1]["walk_end"] == "14:39"
+    assert tl[3] == {"stop": "home", "arrive": "15:49"}
+
+
+def test_timeline_without_start_time_is_minutes_from_start(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    tl = optimize_route(STOPS)["timeline"]
+    assert tl[0]["walk_start"] == 10 and tl[0]["walk_end"] == 30
+
+
+def test_route_totals_add_up(line_route):
+    assert line_route["total_walk_meters"] == 833 * 3 + 2499
+    assert line_route["dog_walk_minutes"] == 110
+    assert line_route["total_minutes"] == 60 + 110
+
+
+def test_fallback_flag_reaches_the_caller(line_route):
+    # fake matrix said "not real streets"; the tool must not upgrade it
+    assert line_route["uses_real_streets"] is False
+    assert line_route["geometry"] is None
+
+
+def test_route_rejects_too_few_or_too_many_stops():
+    assert "error" in optimize_route([{"name": "solo", "lat": 0, "lon": 0}])
+    too_many = [{"name": f"s{i}", "lat": 0, "lon": 0} for i in range(11)]
+    assert "error" in optimize_route(too_many)
