@@ -58,11 +58,15 @@ def _fresh_geocode_cache():
     toolbox._geocode_cache.clear()
 
 
+def _sleep_noop(seconds: float) -> None:
+    """Stand-in for time.sleep: do nothing, instantly."""
+
+
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch):
     """Nominatim politeness (1.1s spacing) is right in production and
     wrong in tests: strip it so the suite stays instant."""
-    monkeypatch.setattr("time.sleep", lambda s: None)
+    monkeypatch.setattr("time.sleep", _sleep_noop)
 
 
 # ---------------------------------------------------------------------
@@ -192,12 +196,12 @@ def test_escalation_still_reports_when_already_at_the_top():
 
 
 def test_geocode_parses_a_hit(monkeypatch):
-    monkeypatch.setattr(
-        "requests.get",
-        lambda *a, **k: FakeResponse(
+    def fake_get(url, **kwargs):
+        return FakeResponse(
             [{"lat": "51.0443", "lon": "-114.0631", "display_name": "Calgary Tower"}]
-        ),
-    )
+        )
+
+    monkeypatch.setattr("requests.get", fake_get)
     result = geocode_addresses(["Calgary Tower"])
     hit = result["results"][0]
     assert hit["lat"] == pytest.approx(51.0443)
@@ -206,12 +210,12 @@ def test_geocode_parses_a_hit(monkeypatch):
 
 def test_geocode_failure_lands_in_its_slot_not_as_an_exception(monkeypatch):
     # one bad address must not torch the good one's result
-    monkeypatch.setattr(
-        "requests.get",
-        lambda url, params, **k: FakeResponse(
-            [] if "zzzz" in params["q"] else [{"lat": "1", "lon": "2"}]
-        ),
-    )
+    def fake_get(url, params, **kwargs):
+        if "zzzz" in params["q"]:
+            return FakeResponse([])  # Nominatim's "no match" shape
+        return FakeResponse([{"lat": "1", "lon": "2"}])
+
+    monkeypatch.setattr("requests.get", fake_get)
     result = geocode_addresses(["real place", "zzzz"])
     assert result["results"][0]["lat"] == 1.0
     assert result["results"][1] == {"address": "zzzz", "error": "not found"}
@@ -242,9 +246,9 @@ def test_geocode_refuses_oversized_batches():
 
 
 def test_check_weather_is_fetch_then_assess(monkeypatch):
-    monkeypatch.setattr(
-        "dog_walker.toolbox.fetch_forecast",
-        lambda lat, lon, date: day(feels_like_c=[-33.0] * 24),
-    )
+    def fake_forecast(lat, lon, date):
+        return day(feels_like_c=[-33.0] * 24)
+
+    monkeypatch.setattr("dog_walker.toolbox.fetch_forecast", fake_forecast)
     result = check_weather(51.0, -114.0, "2026-09-07", 8, 20)
     assert result["verdict"] == "DO_NOT_WALK"

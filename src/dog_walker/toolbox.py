@@ -50,14 +50,17 @@ PRECIP_LADDER = [
     (30, "DO_NOT_WALK"),
 ]
 
-# Combo escalations: predicates over the window summary that bump the
-# base verdict one rung. Reasons always append, even at the top rung.
+def _wet_cold(window: dict) -> bool:
+    """Rain near freezing: a soaked coat loses its insulation, so the
+    combination is worse than either number alone suggests."""
+    return window["max_precip_mm"] > 0.5 and window["min_feels_like_c"] <= 2
+
+
+# Combo escalations: (name, predicate over the window summary, reason).
+# A triggered escalation bumps the base verdict one rung; reasons
+# always append, even at the top rung.
 ESCALATIONS = [
-    (
-        "wet-cold",
-        lambda w: w["max_precip_mm"] > 0.5 and w["min_feels_like_c"] <= 2,
-        "rain near freezing soaks the coat and defeats insulation",
-    ),
+    ("wet-cold", _wet_cold, "rain near freezing soaks the coat and defeats insulation"),
 ]
 
 
@@ -134,14 +137,15 @@ def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -
     its reason. TODO(Bryan): citations for the chosen thresholds.
     """
     idx = [
-        i
-        for i, t in enumerate(hours["time"])
-        if start_hour <= int(t[11:13]) < end_hour
+        i for i, t in enumerate(hours["time"]) if start_hour <= int(t[11:13]) < end_hour
     ]
     if not idx:
         raise ValueError(f"no forecast hours in window [{start_hour}, {end_hour})")
 
-    pick = lambda key, fn: fn(hours[key][i] for i in idx)  # noqa: E731
+    def pick(key: str, fn) -> float:
+        """Reduce one forecast array over the in-window hours."""
+        return fn(hours[key][i] for i in idx)
+
     window = {
         "start_hour": start_hour,
         "end_hour": end_hour,
