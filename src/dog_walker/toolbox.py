@@ -554,10 +554,11 @@ OPTIMIZE_ROUTE_SCHEMA = {
                             "lon": {"type": "number"},
                             "walk_minutes": {
                                 "type": "integer",
-                                "enum": list(WALK_DURATIONS),
+                                "enum": [0, *WALK_DURATIONS],
                                 "description": (
                                     "this dog's walk length, looped "
-                                    "from its own home"
+                                    "from its own home; 0 = the start "
+                                    "stop (no dog there)"
                                 ),
                             },
                         },
