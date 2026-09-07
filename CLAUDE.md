@@ -70,8 +70,11 @@ route tool returns GeoJSON for the browser.
    (qwen2.5:3b 4/5 fails relative dates; qwen2.5:7b 3/5 defers/asks permission).
    Fixtures in experiments/ double as a regression suite (~2 min) — rerun after any
    system-prompt change. Prose checks are triage-only (see fixtures.py docstring).
-2. Tools module (plain Python: geocode/weather/route ported from old repo, safety
-   flags in weather) + thin MCP server facade over the same functions; offline tests.
+2. ✅ Tools DONE 2026-09-08: toolbox.py (check_weather with Bryan's verdict
+   ladders + escalations, geocode_addresses batched/cached/polite, optimize_route
+   with timeline + GeoJSON) + mcp_server.py facade (mcp 2.x SDK: MCPServer, the
+   class tutorials still call FastMCP; verified over stdio with a real client).
+   28 offline tests. Threshold citations still TODO(Bryan).
    **Walk-duration model (Bryan, 2026-09-07):** each dog's walk is 20/30/60 min
    (WALK_DURATIONS enum), taken as a solo loop from its own home — no group walks,
    ever solo. So visiting order stays pure geography (TSP over transit), and
