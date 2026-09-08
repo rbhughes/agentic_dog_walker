@@ -81,7 +81,16 @@ route tool returns GeoJSON for the browser.
    durations drive the TIMELINE (optimize_route returns per-dog walk intervals).
    ROADMAP: per-stop weather checks against those intervals (agent-side, Phase 3);
    pet time-window constraints via OR-Tools time dimension (future).
-3. The agent loop (plan/act/reflect) + CLI harness. ← the learning core
+3. ✅ Agent loop DONE 2026-09-08 (src/dog_walker/agent.py). Mode change: Bryan
+   chose to STUDY a completed implementation and annotate it rather than write it
+   ("I would rather study a completed example and annotate it than guess") — his
+   annotation pass is the remaining learning step. Live-verified full cycle:
+   plan (think-on) → act with validate-before-dispatch bounces → submit_plan
+   vetoed by the deterministic auditor → model made the PRESCRIBED missing
+   weather call → accepted, structured per-dog verdicts out. Two bugs found by
+   tests/live-run and fixed with comments telling the story: _NEAR_DEG 0.03→0.01
+   (start-location check "covered" a dog 3 km away) and vague audit messages
+   livelock (now prescribe exact call args).
    **Phase-3 syllabus, extracted from live lesson-2 traces (2026-09-07/08):**
    (a) validate-before-dispatch with bounce-and-retry (jsonschema against REGISTRY
    schemas; lesson 2 dispatches raw). (b) The reflect loop-back: walk intervals
