@@ -12,10 +12,11 @@ judgment lives in three places:
 The loop ends when the model calls submit_plan -- the structured
 finish line. Its arguments ARE the final answer; prose is garnish.
 
-Provided: chat() (multi-backend, from lesson 2), dispatch(),
-tool_feedback(), the submit_plan schema, the CLI harness.
-TODO(Bryan): validate_call(), run() -- the loop itself -- and
-audit_weather_coverage(). That's the learning core.
+Reading order for annotation: SUBMIT_PLAN_SCHEMA (the finish line),
+validate_call (the referee), run (the loop), audit_weather_coverage
+(the auditor). chat/dispatch/tool_feedback are lesson-1/2 plumbing.
+Known shape-change ahead: Phase 4 turns the print-based trace into
+an event stream for the web UI, so run()'s internals will move.
 """
 
 from __future__ import annotations
@@ -404,8 +405,7 @@ def run(request: str, backend_name: str | None = None, verbose: bool = True) -> 
                 {
                     "role": "user",
                     "content": (
-                        "Finish by calling submit_plan with the "
-                        "structured walk plan."
+                        "Finish by calling submit_plan with the structured walk plan."
                     ),
                 }
             )
@@ -424,10 +424,11 @@ if __name__ == "__main__":
     import sys
 
     demo = (
-        "Plan this afternoon's walks starting and ending at Wrigley "
-        "Field, Chicago. Daisy is at Lincoln Park Zoo, Chicago (20 "
-        "minutes). Rex is at 5218 N Clark St, Chicago (60 minutes). "
-        "I leave at 13:00."
+        "Plan this afternoon's walks starting and ending at 21 W Chestnut St, Chicago "
+        "Daisy is at Lincoln Park Zoo, Chicago (20 minutes)"
+        "Ziggy is at Wrigley Field, Chicago (30 minutes). "
+        "Rex is at 5218 N Clark St, Chicago (60 minutes). "
+        "I leave at 9:00."
     )
     result = run(sys.argv[1] if len(sys.argv) > 1 else demo)
     print(json.dumps(result, indent=2))
