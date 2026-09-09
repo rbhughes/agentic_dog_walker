@@ -106,6 +106,19 @@ route tool returns GeoJSON for the browser.
 5. Funnel + Astro frontend + walker.purr.io CNAME.
 6. README/essay pass; the site explains its own architecture (including the
    facade rationale: native calling where we own both ends, MCP at the boundary).
+7. CANDIDATE (Bryan-approved 2026-09-09): **code-execution vs schema-calling
+   bake-off.** Same task, same toolbox, two idioms: our loop (one validated
+   JSON tool call per round) vs the rising "code execution" pattern (model
+   writes one program using the tools; sandboxed harness runs it). Measure
+   rounds, tokens, wall-clock, failure modes — at qwen3:8b AND a frontier
+   model via OpenRouter. Expected findings worth publishing: the reflect
+   problem dissolves in code (the program derives weather windows from the
+   timeline itself — the auditor's whole reason to exist becomes a for-loop);
+   small models likely fail wholesale where the loop fails one bounce at a
+   time; token savings modest at 3 tools (the 32k-token critiques assume
+   huge catalogs). Needs a real sandbox decision before any public exposure.
+   A dated, graded comparison of the two competing 2026 architectures — the
+   most on-brand possible ending for the site essay.
 
 ## 4. Legacy code (the 2024 LangChain version)
 
