@@ -177,9 +177,21 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+def _client_ip(request: Request) -> str:
+    """Behind Tailscale Funnel the socket peer is the local proxy, so
+    every visitor would share one rate-limit bucket. Funnel supplies
+    the real client in X-Forwarded-For; trust it (the service only
+    listens on 127.0.0.1, so the header can't be spoofed from outside
+    the proxy)."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 @app.post("/plan")
 def plan(body: PlanRequest, request: Request) -> StreamingResponse:
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request)
     if not limiter.allow(ip):
         raise HTTPException(429, "rate limit: try again later")
 
