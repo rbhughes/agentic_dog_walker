@@ -64,7 +64,7 @@ RUNS_DIR = Path(__file__).resolve().parents[2] / "runs"
 MODELS: dict[str, str] = {
     "qwen/qwen3-8b": "Qwen3 8B — the bake-off winner (default)",
     "anthropic/claude-haiku-4.5": "Claude Haiku 4.5 — frontier-lab small model",
-    "google/gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite — Google's cheap tier",
+    "google/gemini-2.5-flash": "Gemini 2.5 Flash — Google's fast tier",
     "meta-llama/llama-3.3-70b-instruct": "Llama 3.3 70B — big open weights",
     "mistralai/mistral-small-3.2-24b-instruct": "Mistral Small 3.2 24B",
 }
