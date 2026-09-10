@@ -151,6 +151,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def allow_private_network(request: Request, call_next):
+    """Chrome Private Network Access: on a tailnet machine, MagicDNS
+    resolves this service to a CGNAT (private) address, and Chrome
+    blocks public-site -> private-address requests unless the
+    preflight answers with this header. Off-tailnet visitors resolve
+    to Funnel's public ingress and never trigger PNA."""
+    response = await call_next(request)
+    if request.method == "OPTIONS":
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
+
 @app.on_event("startup")
 def _startup() -> None:
     n = seed_geocode_cache()
