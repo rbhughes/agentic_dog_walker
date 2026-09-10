@@ -4,9 +4,9 @@ scores against each model.
 A fixture is plain data: the exact conversation we send, the tools we
 offer, and a declarative `expect` block the runner checks. No fixture
 ever hits a real API -- when a scenario needs a tool result, we script
-the result (same trick as lesson 1's fake blizzard).
+the result (a scripted fake, same trick as toolcall_demo.py).
 
-Five fixtures, one per lesson-1 axis: call structure, relative dates,
+Five fixtures, one per failure axis: call structure, relative dates,
 over-eager calling, tool choice, and safety-flag fidelity.
 
 LIMITATION -- prose checks are TRIAGE ONLY. `prose_mentions` /
@@ -81,7 +81,7 @@ FIXTURES = [
     {
         # short slug; shows up in the scorecard table
         "id": "basic-structure",
-        # which lesson-1 axis this probes (documentation, not logic)
+        # which failure axis this probes (documentation, not logic)
         "axis": "call structure + explicit date",
         # exactly what we send as `messages` on the first request
         "messages": [
@@ -105,11 +105,11 @@ FIXTURES = [
         # OPTIONAL second round: if present, the runner appends the
         # model's reply + this scripted result, calls the model again,
         # and applies `final_expect` to the closing prose.
-        "tool_result": {"temp_c": -21, "precip_mm": 40, "wind_kph": 30},
+        "tool_result": {"temp_f": -6, "precip_mm": 40, "wind_kph": 30},
         "final_expect": {
             # every string here must appear in the final content
-            # (case-insensitive) -- numeric fidelity, lesson 1 axis 2
-            "prose_mentions": ["-21"],
+            # (case-insensitive) -- the numeric-fidelity axis
+            "prose_mentions": ["-6"],
         },
     },
     {
@@ -163,7 +163,7 @@ FIXTURES = [
     {
         "id": "severity",
         "axis": "relaying a safety flag without softening it",
-        # Design decision (resolving the open question from lesson 1):
+        # Design decision:
         # we do NOT grade the model's own judgment of raw numbers --
         # that proved brittle, and the real system won't rely on it.
         # The real weather tool will compute deterministic safety
@@ -181,9 +181,9 @@ FIXTURES = [
             "args_valid": True,
         },
         "tool_result": {
-            "temp_c": -21,
+            "temp_f": -6,
             "wind_kph": 30,
-            "feels_like_c": -33,
+            "feels_like_f": -27,
             "safety": "DO_NOT_WALK",
             "safety_reason": "extreme cold; frostbite risk for dogs in minutes",
         },

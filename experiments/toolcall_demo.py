@@ -1,9 +1,9 @@
-"""Lesson 1 extended: one tool-call cycle against a chosen backend.
+"""One tool-call cycle against a chosen backend.
 
 Usage:
-    uv run python experiments/lesson1_toolcall.py                    # default
-    uv run python experiments/lesson1_toolcall.py --think            # reasoning on
-    uv run python experiments/lesson1_toolcall.py anthropic/claude-haiku-4.5
+    uv run python experiments/toolcall_demo.py                    # default
+    uv run python experiments/toolcall_demo.py --think            # reasoning on
+    uv run python experiments/toolcall_demo.py anthropic/claude-haiku-4.5
 
 Backend selection: if LOCAL_LLM is set (env or .env, e.g.
 LOCAL_LLM=fossil), that backend is used; otherwise OpenRouter.

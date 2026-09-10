@@ -1,0 +1,238 @@
+"""The public face: FastAPI service streaming the agent's events.
+
+Endpoints:
+    GET  /presets          the demo rosters (id, title, description)
+    POST /plan             run the agent; response is an SSE stream of
+                           run_events() events, one per `data:` line
+    GET  /healthz          liveness probe
+
+Armor (full rationale in docs/SERVICE.md -- keep both in sync):
+    * structured input ONLY: pydantic models with hard caps; free text
+      never reaches the model from the network
+    * per-IP rate limit (token bucket, in-memory)
+    * single-flight execution with a bounded wait queue
+    * per-run wall-clock deadline
+    * CORS restricted to the site's origins
+    * every run's transcript logged to runs/ (gitignored)
+
+Run locally:  uv run uvicorn dog_walker.service:app --port 8010
+"""
+
+from __future__ import annotations
+
+import json
+import queue
+import threading
+import time
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Literal, get_args
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, model_validator
+
+from dog_walker.agent import run_events
+from dog_walker.presets import PRESETS, build_request, seed_geocode_cache
+from dog_walker.toolbox import WALK_DURATIONS
+
+# ---------------------------------------------------------------------
+# limits -- the numbers ARE the policy; change them consciously
+# ---------------------------------------------------------------------
+
+MAX_PETS = 6
+MAX_FIELD_CHARS = 120
+RATE_LIMIT_RUNS = 6          # per IP...
+RATE_LIMIT_WINDOW_S = 3600   # ...per hour
+MAX_QUEUE_WAIT = 3           # runs allowed to wait behind the active one
+RUN_DEADLINE_S = 180         # OpenRouter finishes in ~30-60s; 3x margin
+ALLOWED_ORIGINS = [
+    "https://walker.purr.io",
+    "http://localhost:4321",   # astro dev server
+]
+
+RUNS_DIR = Path(__file__).resolve().parents[2] / "runs"
+
+
+# ---------------------------------------------------------------------
+# request models: the schema is the front door's referee. Anything
+# that parses is safe to render into a prompt; anything else is a 422
+# before our code runs.
+# ---------------------------------------------------------------------
+
+
+# Literal requires the values written out (a variable here is invalid
+# per the typing spec -- Pyright reportInvalidTypeForm). The assert
+# keeps this annotation from drifting apart from toolbox policy.
+WalkMinutes = Literal[20, 30, 60]
+assert set(get_args(WalkMinutes)) == set(WALK_DURATIONS)
+
+
+class Pet(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    address: str = Field(min_length=4, max_length=MAX_FIELD_CHARS)
+    walk_minutes: WalkMinutes
+
+
+class PlanRequest(BaseModel):
+    """Either a preset id, or a full custom roster -- never both."""
+
+    preset: str | None = None
+    start_address: str | None = Field(
+        default=None, min_length=4, max_length=MAX_FIELD_CHARS
+    )
+    start_time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    pets: list[Pet] | None = Field(default=None, max_length=MAX_PETS)
+
+    @model_validator(mode="after")
+    def preset_xor_custom(self):
+        custom = (self.start_address, self.start_time, self.pets)
+        if self.preset is not None:
+            if any(f is not None for f in custom):
+                raise ValueError("send a preset OR a custom roster, not both")
+            if self.preset not in PRESETS:
+                raise ValueError(f"unknown preset; try one of {sorted(PRESETS)}")
+        elif not all(f is not None for f in custom):
+            raise ValueError(
+                "custom mode needs start_address, start_time, and pets"
+            )
+        return self
+
+
+# ---------------------------------------------------------------------
+# rate limiter: fixed-window counter per IP, in-memory. Deliberately
+# primitive -- one process, no distributed state, resets on restart.
+# Good enough to make abuse boring; revisit if the service ever runs
+# on more than one box.
+# ---------------------------------------------------------------------
+
+
+class RateLimiter:
+    def __init__(self, limit: int, window_s: int):
+        self.limit = limit
+        self.window_s = window_s
+        self._hits: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            hits = [t for t in self._hits.get(key, []) if now - t < self.window_s]
+            if len(hits) >= self.limit:
+                self._hits[key] = hits
+                return False
+            hits.append(now)
+            self._hits[key] = hits
+            return True
+
+
+limiter = RateLimiter(RATE_LIMIT_RUNS, RATE_LIMIT_WINDOW_S)
+
+# single-flight: the semaphore's ONE slot is the running agent; up to
+# MAX_QUEUE_WAIT more may block waiting for it. Everyone else gets 429
+# immediately -- an honest "busy" beats a mystery hang.
+_run_slot = threading.Semaphore(1)
+_waiting = threading.Semaphore(MAX_QUEUE_WAIT)
+
+
+# ---------------------------------------------------------------------
+# the app
+# ---------------------------------------------------------------------
+
+app = FastAPI(title="dog-walker", docs_url=None, redoc_url=None)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["content-type"],
+)
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    n = seed_geocode_cache()
+    RUNS_DIR.mkdir(exist_ok=True)
+    print(f"seeded {n} preset geocodes; transcripts in {RUNS_DIR}")
+
+
+@app.get("/healthz")
+def healthz() -> dict:
+    return {"ok": True}
+
+
+@app.get("/presets")
+def presets() -> list[dict]:
+    return [
+        {"id": pid, "title": p["title"], "description": p["description"],
+         "pets": [pet["name"] for pet in p["pets"]]}
+        for pid, p in PRESETS.items()
+    ]
+
+
+def _sse(payload: dict) -> str:
+    """One server-sent event: `data: <json>` + blank line."""
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+@app.post("/plan")
+def plan(body: PlanRequest, request: Request) -> StreamingResponse:
+    ip = request.client.host if request.client else "unknown"
+    if not limiter.allow(ip):
+        raise HTTPException(429, "rate limit: try again later")
+
+    if body.preset:
+        p = PRESETS[body.preset]
+        prompt = build_request(p["start_address"], p["start_time"], p["pets"])
+    else:
+        prompt = build_request(
+            body.start_address,
+            body.start_time,
+            [pet.model_dump() for pet in body.pets],
+        )
+
+    if not _waiting.acquire(blocking=False):
+        raise HTTPException(429, "queue full: try again in a minute")
+
+    run_id = uuid.uuid4().hex[:12]
+
+    def stream():
+        """Bridge: the blocking agent runs in THIS generator (uvicorn
+        gives it a worker thread); we enforce the deadline between
+        events and log everything. The deadline can only fire between
+        events -- a single hung model call is bounded separately by
+        chat()'s own timeout+retry."""
+        events = []
+        started = time.monotonic()
+        try:
+            yield _sse({"event": "accepted", "run_id": run_id})
+            with _run_slot:
+                _waiting.release()  # promoted from waiting to running
+                for ev in run_events(prompt):
+                    events.append(ev)
+                    yield _sse(ev)
+                    if time.monotonic() - started > RUN_DEADLINE_S:
+                        timeout_ev = {
+                            "event": "error",
+                            "message": f"deadline: {RUN_DEADLINE_S}s exceeded",
+                        }
+                        events.append(timeout_ev)
+                        yield _sse(timeout_ev)
+                        break
+        finally:
+            (RUNS_DIR / f"{run_id}.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "at": datetime.now().astimezone().isoformat(),
+                        "ip": ip,
+                        "request": prompt,
+                        "seconds": round(time.monotonic() - started, 1),
+                        "events": events,
+                    },
+                    indent=2,
+                )
+            )
+
+    return StreamingResponse(stream(), media_type="text/event-stream")

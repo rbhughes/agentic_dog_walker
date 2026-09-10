@@ -1,6 +1,6 @@
-"""Lesson 2: the model drives the REAL toolbox.
+"""The model drives the REAL toolbox in a raw dispatch loop.
 
-Lesson 1 scripted fake tool results. Here the loop is honest:
+toolcall_demo.py scripts fake tool results. Here the loop is honest:
     model -> tool_calls -> we EXECUTE from REGISTRY -> results back
     -> model again ... until it answers in prose.
 That cycle is the skeleton of the Phase-3 agent; what's deliberately
@@ -9,11 +9,11 @@ plan step, reflection on results, and retry discipline. Watch for
 where this loop misbehaves -- its failures are the Phase-3 syllabus.
 
 Usage:
-    uv run python experiments/lesson2_realtools.py            # OpenRouter
-    uv run python experiments/lesson2_realtools.py --think
-    LOCAL_LLM=fossil uv run python experiments/lesson2_realtools.py
+    uv run python experiments/dispatch_demo.py            # OpenRouter
+    uv run python experiments/dispatch_demo.py --think
+    LOCAL_LLM=fossil uv run python experiments/dispatch_demo.py
 
-Same backend selection and dialect notes as lesson1_toolcall.py.
+Same backend selection and dialect notes as toolcall_demo.py.
 Live network: geocoding is 1.1s/address (Nominatim politeness);
 routing uses the OpenRouteService key from .env.
 """
@@ -55,7 +55,7 @@ MAX_ROUNDS = 6  # a leash: loops that can call tools can also spin
 
 
 def chat(backend: dict, messages: list, think: bool) -> dict:
-    """One chat round; normalized like lesson 1 (see its docstring)."""
+    """One chat round; normalized (see toolcall_demo.py docstring)."""
     if backend["style"] == "ollama":
         body = {
             "model": backend["model"],
@@ -122,7 +122,7 @@ def dispatch(name: str, arguments: dict) -> dict:
 
 
 def tool_feedback(backend: dict, call: dict, result: dict) -> dict:
-    """Round-trip one result in the backend's dialect (lesson 1 notes)."""
+    """Round-trip one result in the backend's dialect."""
     msg = {"role": "tool", "content": json.dumps(result)}
     if backend["style"] == "openai":
         msg["tool_call_id"] = call["id"]

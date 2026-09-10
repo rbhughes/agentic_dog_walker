@@ -28,8 +28,8 @@ def day(**overrides):
     """A synthetic 24-hour forecast: mild everywhere unless overridden."""
     base = {
         "time": [f"2026-09-07T{h:02d}:00" for h in range(24)],
-        "temp_c": [15.0] * 24,
-        "feels_like_c": [15.0] * 24,
+        "temp_f": [59.0] * 24,
+        "feels_like_f": [59.0] * 24,
         "precip_mm": [0.0] * 24,
         "wind_kph": [10.0] * 24,
     }
@@ -114,25 +114,25 @@ def test_mild_day_is_ok_with_no_reasons():
 
 
 def test_extreme_cold_forbids_the_walk():
-    # the Phase-1 fixture blizzard: feels-like -33
-    result = assess_walk_safety(day(feels_like_c=[-33.0] * 24), 8, 20)
+    # the fixture blizzard: feels-like -27F (below the -4F rung)
+    result = assess_walk_safety(day(feels_like_f=[-27.0] * 24), 8, 20)
     assert result["verdict"] == "DO_NOT_WALK"
     assert any("feels-like low" in r for r in result["reasons"])
 
 
 def test_heat_keys_on_feels_like_not_air_temp():
-    # humid 32C feels like 36: air temp alone would miss DO_NOT_WALK
+    # humid 90F feels like 97: air temp alone would miss DO_NOT_WALK
     result = assess_walk_safety(
-        day(temp_c=[32.0] * 24, feels_like_c=[36.0] * 24), 8, 20
+        day(temp_f=[90.0] * 24, feels_like_f=[97.0] * 24), 8, 20
     )
     assert result["verdict"] == "DO_NOT_WALK"
 
 
 def test_strictest_ladder_wins_and_all_reasons_report():
-    # cold at CAUTION (-6) plus wind at SHORTEN (42): verdict takes the
-    # worst, but BOTH rules explain themselves
+    # cold at CAUTION (18F, under the 20F rung) plus wind at SHORTEN
+    # (42 kph): verdict takes the worst, but BOTH rules explain themselves
     result = assess_walk_safety(
-        day(feels_like_c=[-6.0] * 24, wind_kph=[42.0] * 24), 8, 20
+        day(feels_like_f=[18.0] * 24, wind_kph=[42.0] * 24), 8, 20
     )
     assert result["verdict"] == "SHORTEN"
     assert len(result["reasons"]) == 2
@@ -144,12 +144,12 @@ def test_strictest_ladder_wins_and_all_reasons_report():
 
 
 def test_cold_dawn_does_not_cancel_a_warm_afternoon():
-    # -25 until 8am, 15C after: a 2-5pm walk never sees the dawn.
+    # -13F until 8am, 59F after: a 2-5pm walk never sees the dawn.
     # (The 2024 tool averaged the whole day and got this wrong.)
-    feels = [-25.0] * 8 + [15.0] * 16
-    result = assess_walk_safety(day(feels_like_c=feels), 14, 17)
+    feels = [-13.0] * 8 + [59.0] * 16
+    result = assess_walk_safety(day(feels_like_f=feels), 14, 17)
     assert result["verdict"] == "OK"
-    assert result["window"]["min_feels_like_c"] == 15.0
+    assert result["window"]["min_feels_like_f"] == 59.0
 
 
 def test_window_stats_report_the_worst_hour_in_window():
@@ -171,20 +171,20 @@ def test_empty_window_is_an_error_not_a_guess():
 
 
 def test_wet_cold_bumps_a_verdict_the_numbers_alone_miss():
-    # +1C drizzle: no ladder fires (base OK), but wet coat at
+    # 34F drizzle: no ladder fires (base OK), but wet coat at
     # near-freezing defeats insulation -> CAUTION
     result = assess_walk_safety(
-        day(feels_like_c=[1.0] * 24, precip_mm=[1.0] * 24), 8, 20
+        day(feels_like_f=[34.0] * 24, precip_mm=[1.0] * 24), 8, 20
     )
     assert result["verdict"] == "CAUTION"
     assert any("wet-cold" in r for r in result["reasons"])
 
 
 def test_escalation_still_reports_when_already_at_the_top():
-    # -33 and raining: verdict can't get worse than DO_NOT_WALK, but
+    # -27F and raining: verdict can't get worse than DO_NOT_WALK, but
     # the wet-cold reason still appears -- the report stays complete
     result = assess_walk_safety(
-        day(feels_like_c=[-33.0] * 24, precip_mm=[2.0] * 24), 8, 20
+        day(feels_like_f=[-27.0] * 24, precip_mm=[2.0] * 24), 8, 20
     )
     assert result["verdict"] == "DO_NOT_WALK"
     assert any("wet-cold" in r for r in result["reasons"])
@@ -247,7 +247,7 @@ def test_geocode_refuses_oversized_batches():
 
 def test_check_weather_is_fetch_then_assess(monkeypatch):
     def fake_forecast(lat, lon, date):
-        return day(feels_like_c=[-33.0] * 24)
+        return day(feels_like_f=[-27.0] * 24)
 
     monkeypatch.setattr("dog_walker.toolbox.fetch_forecast", fake_forecast)
     result = check_weather(51.0, -114.0, "2026-09-07", 8, 20)

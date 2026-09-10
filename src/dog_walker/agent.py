@@ -14,7 +14,7 @@ finish line. Its arguments ARE the final answer; prose is garnish.
 
 Reading order for annotation: SUBMIT_PLAN_SCHEMA (the finish line),
 validate_call (the referee), run (the loop), audit_weather_coverage
-(the auditor). chat/dispatch/tool_feedback are lesson-1/2 plumbing.
+(the auditor). chat/dispatch/tool_feedback are wire plumbing.
 Known shape-change ahead: Phase 4 turns the print-based trace into
 an event stream for the web UI, so run()'s internals will move.
 """
@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 from datetime import datetime
 from typing import Any
@@ -39,7 +41,7 @@ except ImportError:
     pass
 
 # ---------------------------------------------------------------------
-# backends (settled in lesson 1/2; LOCAL_LLM=fossil selects local)
+# backends (LOCAL_LLM=fossil selects local; default is OpenRouter)
 # ---------------------------------------------------------------------
 
 BACKENDS = {
@@ -107,7 +109,7 @@ TOOLS = [schema for _fn, schema in REGISTRY.values()] + [SUBMIT_PLAN_SCHEMA]
 
 
 # ---------------------------------------------------------------------
-# provided plumbing (understood in lessons 1-2)
+# wire plumbing
 # ---------------------------------------------------------------------
 
 
@@ -140,11 +142,30 @@ def chat(backend: dict, messages: list, think: bool = False) -> dict:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {key}",
         }
+    # Armor: one model round gets 3 attempts with short backoff.
+    # Retryable: network faults, timeouts, rate limits (429), and
+    # server-side errors (5xx). Client errors (4xx) are OUR bug --
+    # fail fast so they surface.
     req = urllib.request.Request(backend["url"], json.dumps(body).encode(), headers)
-    resp = json.load(urllib.request.urlopen(req, timeout=300))
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = json.load(urllib.request.urlopen(req, timeout=180))
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 429 or e.code >= 500:
+                last_error = e
+            else:
+                raise
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last_error = e
+        time.sleep(2**attempt)  # 1s, 2s before attempts 2 and 3
+    else:
+        raise RuntimeError(f"model backend unreachable after 3 attempts: {last_error}")
+
     if backend["style"] == "ollama":
         raw = resp["message"]
-        norm = dict(raw)
+        norm = dict(raw)  # makes shallow copy
     else:
         raw = resp["choices"][0]["message"]
         norm = dict(raw)
@@ -172,7 +193,7 @@ def dispatch(name: str, arguments: dict) -> dict:
 
 
 def tool_feedback(backend: dict, call: dict, result: dict) -> dict:
-    """Package a result in the backend's dialect (lesson-1 notes)."""
+    """Package a result in the backend's dialect."""
     msg = {"role": "tool", "content": json.dumps(result)}
     if backend["style"] == "openai":
         msg["tool_call_id"] = call["id"]
@@ -180,7 +201,7 @@ def tool_feedback(backend: dict, call: dict, result: dict) -> dict:
 
 
 # ---------------------------------------------------------------------
-# the referee: nobody else enforces the schemas (lesson-1 finding)
+# the referee: nobody else enforces the schemas
 # ---------------------------------------------------------------------
 
 # every schema the model may call, submit_plan included
@@ -214,7 +235,7 @@ def validate_call(name: str, arguments: dict) -> str | None:
 
 # ~1 km at these latitudes. First draft was 0.03 (~3 km) and a test
 # caught it: a check at the start location "covered" a dog 3 km away,
-# exactly the lesson-2 failure the auditor exists to catch.
+# exactly the start-location-only failure the auditor exists to catch.
 _NEAR_DEG = 0.01
 
 
@@ -311,27 +332,49 @@ def audit_weather_coverage(messages: list) -> str | None:
 
 
 # ---------------------------------------------------------------------
-# TODO(Bryan) 3: the loop
+# 3: the loop -- as an EVENT STREAM.
+#
+# run_events() is the agent: a generator yielding one structured event
+# per observable moment. Every consumer -- the CLI wrapper below, the
+# web service's SSE endpoint, offline tests with a scripted backend --
+# reads the same stream. The event vocabulary:
+#
+#   {"event": "start",      "model": ..., "backend": ...}
+#   {"event": "plan",       "text": ...}          # the written plan
+#   {"event": "call",       "round": n, "name": ..., "arguments": {...}}
+#   {"event": "bounce",     "name": ..., "error": ...}   # referee refusal
+#   {"event": "result",     "name": ..., "result": {...}}
+#   {"event": "audit_veto", "gap": ...}           # auditor refusal
+#   {"event": "nudge",      "round": n}           # prose without a finish
+#   {"event": "final",      "plan": {...}}        # validated submit_plan args
+#   {"event": "error",      "message": ...}       # terminal failure
+#
+# A stream always ends with exactly one "final" or one "error".
 # ---------------------------------------------------------------------
 
 
 def _brief(value: Any, limit: int = 120) -> str:
-    """One-line summary for the trace printout."""
+    """One-line summary for the CLI trace."""
     text = value if isinstance(value, str) else json.dumps(value)
     return text[:limit] + ("..." if len(text) > limit else "")
 
 
-def run(request: str, backend_name: str | None = None, verbose: bool = True) -> dict:
-    """The agent: plan, then act with validation, reflect via the
-    auditor, finish through submit_plan. Returns the validated
-    submit_plan arguments -- structured data, never parsed prose.
-    """
+def _plan_text(reply: dict) -> str:
+    """The plan, wherever this backend put it: OpenRouter uses
+    `reasoning`, Ollama uses `thinking`, models without a reasoning
+    channel narrate in `content`. First non-empty wins."""
+    for key in ("reasoning", "thinking", "content"):
+        if reply.get(key):
+            return reply[key]
+    return ""
+
+
+def run_events(request: str, backend_name: str | None = None):
+    """The agent: plan, act with validation, reflect via the auditor,
+    finish through submit_plan. Yields events (vocabulary above)."""
     backend = BACKENDS[backend_name or os.environ.get("LOCAL_LLM") or "openrouter"]
     today = datetime.now().astimezone()
-
-    def trace(text: str) -> None:
-        if verbose:
-            print(text)
+    yield {"event": "start", "model": backend["model"], "backend": backend["url"]}
 
     messages: list[dict] = [
         {
@@ -349,71 +392,111 @@ def run(request: str, backend_name: str | None = None, verbose: bool = True) -> 
         {"role": "user", "content": request},
     ]
 
-    # ---- PLAN: one reasoning-mode round. Measured in lesson 2:
-    # think-on plans tools per-dog; think-off doesn't. The reply joins
-    # the state so every later (cheaper, think-off) round sees it.
-    # If the plan round already proposes tool calls, they are handled
-    # by the same act machinery below -- planning and acting are
-    # allowed to overlap.
-    plan_reply = chat(backend, messages, think=True)
-    messages.append(plan_reply["_raw"])
-    if plan_reply.get("content"):
-        trace(f"[plan] {_brief(plan_reply['content'], 200)}")
-    pending = plan_reply.get("tool_calls") or []
+    try:
+        # ---- PLAN: one reasoning-mode round (measured: think-on plans
+        # per-dog; think-off doesn't). The reply joins the state so all
+        # later think-off rounds see it. If it already proposes calls,
+        # the act machinery below handles them -- planning and acting
+        # are allowed to overlap.
+        plan_reply = chat(backend, messages, think=True)
+        messages.append(plan_reply["_raw"])
+        if text := _plan_text(plan_reply):
+            yield {"event": "plan", "text": text}
+        pending = plan_reply.get("tool_calls") or []
 
-    nudges = 0
-    for round_no in range(1, MAX_ROUNDS + 1):
-        # ---- ACT on whatever calls are pending
-        for call in pending:
-            name = call["function"]["name"]
-            arguments = call["function"]["arguments"]
-            trace(f"[round {round_no}] {name}({_brief(arguments)})")
-
-            # the referee, BEFORE anything runs
-            error = validate_call(name, arguments)
-            if error:
-                trace(f"    bounce: {error}")
-                messages.append(tool_feedback(backend, call, {"error": error}))
-                continue
-
-            if name == "submit_plan":
-                # ---- REFLECT: the deterministic auditor gets a veto
-                gap = audit_weather_coverage(messages)
-                if gap:
-                    trace(f"    audit: {gap}")
-                    messages.append(tool_feedback(backend, call, {"error": gap}))
-                    continue
-                trace("    accepted.")
-                return arguments  # the structured finish line
-
-            result = dispatch(name, arguments)
-            trace(f"    -> {_brief(result)}")
-            messages.append(tool_feedback(backend, call, result))
-
-        # ---- next model round (think off: plan is already in state)
-        reply = chat(backend, messages, think=False)
-        messages.append(reply["_raw"])
-        pending = reply.get("tool_calls") or []
-
-        # prose without a finish is not an answer -- nudge, twice max
-        if not pending:
-            if nudges >= 2:
-                break
-            nudges += 1
-            trace(f"[round {round_no}] prose without submit_plan; nudging")
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "Finish by calling submit_plan with the structured walk plan."
-                    ),
+        nudges = 0
+        for round_no in range(1, MAX_ROUNDS + 1):
+            # ---- ACT on whatever calls are pending
+            for call in pending:
+                name = call["function"]["name"]
+                arguments = call["function"]["arguments"]
+                yield {
+                    "event": "call",
+                    "round": round_no,
+                    "name": name,
+                    "arguments": arguments,
                 }
-            )
 
-    raise RuntimeError(
-        f"no submit_plan within {MAX_ROUNDS} rounds; last message: "
-        f"{_brief(messages[-1].get('content') or '', 200)}"
-    )
+                # the referee, BEFORE anything runs
+                if error := validate_call(name, arguments):
+                    yield {"event": "bounce", "name": name, "error": error}
+                    messages.append(tool_feedback(backend, call, {"error": error}))
+                    continue
+
+                if name == "submit_plan":
+                    # ---- REFLECT: the deterministic auditor gets a veto
+                    if gap := audit_weather_coverage(messages):
+                        yield {"event": "audit_veto", "gap": gap}
+                        messages.append(tool_feedback(backend, call, {"error": gap}))
+                        continue
+                    yield {"event": "final", "plan": arguments}
+                    return
+
+                result = dispatch(name, arguments)
+                yield {"event": "result", "name": name, "result": result}
+                messages.append(tool_feedback(backend, call, result))
+
+            # ---- next model round (think off: plan is already in state)
+            reply = chat(backend, messages, think=False)
+            messages.append(reply["_raw"])
+            pending = reply.get("tool_calls") or []
+
+            # prose without a finish is not an answer -- nudge, twice max
+            if not pending:
+                if nudges >= 2:
+                    break
+                nudges += 1
+                yield {"event": "nudge", "round": round_no}
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "Finish by calling submit_plan with the "
+                            "structured walk plan."
+                        ),
+                    }
+                )
+
+        yield {
+            "event": "error",
+            "message": (
+                f"no submit_plan within {MAX_ROUNDS} rounds; last message: "
+                f"{_brief(messages[-1].get('content') or '', 200)}"
+            ),
+        }
+    except Exception as e:  # noqa: BLE001 -- stream boundary: fail as an event
+        yield {"event": "error", "message": f"{type(e).__name__}: {e}"}
+
+
+def run(request: str, backend_name: str | None = None, verbose: bool = True) -> dict:
+    """CLI-flavoured consumer of run_events(): prints a human trace,
+    returns the validated plan, raises on a terminal error. Same
+    signature and contract as before the event refactor."""
+
+    def trace(text: str) -> None:
+        if verbose:
+            print(text)
+
+    for ev in run_events(request, backend_name):
+        kind = ev["event"]
+        if kind == "plan":
+            trace(f"[plan] {_brief(ev['text'], 200)}")
+        elif kind == "call":
+            trace(f"[round {ev['round']}] {ev['name']}({_brief(ev['arguments'])})")
+        elif kind == "bounce":
+            trace(f"    bounce: {ev['error']}")
+        elif kind == "audit_veto":
+            trace(f"    audit: {ev['gap']}")
+        elif kind == "result":
+            trace(f"    -> {_brief(ev['result'])}")
+        elif kind == "nudge":
+            trace(f"[round {ev['round']}] prose without submit_plan; nudging")
+        elif kind == "final":
+            trace("    accepted.")
+            return ev["plan"]
+        elif kind == "error":
+            raise RuntimeError(ev["message"])
+    raise RuntimeError("event stream ended without final or error")
 
 
 # ---------------------------------------------------------------------

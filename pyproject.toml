@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.141.1",
     "folium>=0.20.0",
     "geopy>=2.4.1",
     "jsonschema>=4.25.1",
@@ -25,6 +26,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "isort>=6.1.0",
     "mypy>=1.18.2",
     "pytest>=8.4.2",

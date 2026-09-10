@@ -31,7 +31,7 @@ def test_wrong_type_is_named_and_located():
 
 
 def test_invented_argument_is_rejected():
-    # lesson 1's stray "time" argument, finally refused
+    # the classic invented argument ("time"), refused at the gate
     error = validate_call("check_weather", {"lat": 41.9, "lon": -87.6,
                                             "date": "2026-09-08", "time": "4pm"})
     assert "time" in error
@@ -113,7 +113,7 @@ def test_no_timeline_yet_means_nothing_to_audit():
 
 
 def test_uncovered_walk_is_reported_by_name_and_interval():
-    # the lesson-2 failure, now caught: weather checked 13-14,
+    # the start-location-only failure, now caught: weather checked 13-14,
     # Daisy actually walks 16:09-16:29
     messages = [weather_call(*ZOO, 13, 14), *route_exchange()]
     gap = audit_weather_coverage(messages)

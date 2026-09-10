@@ -3,8 +3,8 @@
 Usage:  uv run python experiments/runner.py [model ...]
         (default: qwen2.5:7b qwen3:8b qwen2.5:3b)
 
-What it enforces -- each check exists because lesson 1 showed nobody
-else enforces it:
+What it enforces -- each check exists because raw tool-calling
+experiments showed nobody else enforces it:
   * calls_tool        the model called the right tool (or, for None,
                       resisted calling one at all)
   * args_valid        arguments validate against the tool's OWN

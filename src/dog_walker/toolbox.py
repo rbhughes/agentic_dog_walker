@@ -29,15 +29,20 @@ import requests
 # it relays them.
 VERDICTS = ("OK", "CAUTION", "SHORTEN", "DO_NOT_WALK")
 
+# Fahrenheit, owner-rounded policy (2026-09-10). Started as exact
+# conversions of the original Celsius ladders; cold was rounded to
+# 20/10/-5 and heat CAUTION raised to 84F (68F fired on pleasant
+# days). Changing any rung is a POLICY change and will trip tests --
+# that friction is intentional.
 COLD_LADDER = [
-    (-5, "CAUTION"),
-    (-10, "SHORTEN"),
-    (-20, "DO_NOT_WALK"),
+    (20, "CAUTION"),
+    (10, "SHORTEN"),
+    (-5, "DO_NOT_WALK"),
 ]
 HEAT_LADDER = [
-    (20, "CAUTION"),
-    (30, "SHORTEN"),
-    (35, "DO_NOT_WALK"),
+    (84, "CAUTION"),
+    (88, "SHORTEN"),
+    (95, "DO_NOT_WALK"),
 ]
 WIND_LADDER = [
     (35, "CAUTION"),
@@ -54,7 +59,7 @@ PRECIP_LADDER = [
 def _wet_cold(window: dict) -> bool:
     """Rain near freezing: a soaked coat loses its insulation, so the
     combination is worse than either number alone suggests."""
-    return window["max_precip_mm"] > 0.5 and window["min_feels_like_c"] <= 2
+    return window["max_precip_mm"] > 0.5 and window["min_feels_like_f"] <= 35.6
 
 
 # Combo escalations: (name, predicate over the window summary, reason).
@@ -85,11 +90,12 @@ def _walk_ladder(value: float, ladder: list, colder_is_worse: bool = False):
 
 def fetch_forecast(lat: float, lon: float, date: str) -> dict[str, list]:
     """Hourly forecast arrays for one date (ported from the 2024 tool,
-    plus apparent_temperature -- 'feels like' drives cold thresholds
+    plus apparent_temperature ('feels like'), which drives cold thresholds
     better than air temperature).
 
-    Returns {"time": [...], "temp_c": [...], "feels_like_c": [...],
-             "precip_mm": [...], "wind_kph": [...]}
+    Returns {"time": [...], "temp_f": [...], "feels_like_f": [...],
+             "precip_mm": [...], "wind_kph": [...]} -- temperatures in
+             Fahrenheit (Open-Meteo converts server-side)
     """
     resp = requests.get(
         "https://api.open-meteo.com/v1/forecast",
@@ -100,6 +106,7 @@ def fetch_forecast(lat: float, lon: float, date: str) -> dict[str, list]:
             "end_date": date,
             "hourly": "temperature_2m,apparent_temperature,"
             "precipitation,wind_speed_10m",
+            "temperature_unit": "fahrenheit",
             "timezone": "auto",
         },
         timeout=10,
@@ -108,8 +115,8 @@ def fetch_forecast(lat: float, lon: float, date: str) -> dict[str, list]:
     h = resp.json()["hourly"]
     return {
         "time": h["time"],
-        "temp_c": h["temperature_2m"],
-        "feels_like_c": h["apparent_temperature"],
+        "temp_f": h["temperature_2m"],
+        "feels_like_f": h["apparent_temperature"],
         "precip_mm": h["precipitation"],
         "wind_kph": h["wind_speed_10m"],
     }
@@ -121,21 +128,17 @@ def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -
 
     Looks only at the [start_hour, end_hour) window -- the 2024 tool
     averaged the whole day, which erased the fact that timing IS the
-    decision (a -25C dawn doesn't cancel a -5C afternoon walk).
+    decision (a -13F dawn doesn't cancel a 23F afternoon walk).
 
     Returns:
         {
           "verdict": one of VERDICTS (strictest triggered rule wins),
           "reasons": [short human-readable strings, one per rule hit],
           "window": {"start_hour": ..., "end_hour": ...,
-                     "min_feels_like_c": ..., "max_precip_mm": ...,
+                     "min_feels_like_f": ..., "max_precip_mm": ...,
                      "max_wind_kph": ...},
         }
 
-    The thresholds (ladders/escalations above) are policy and carry
-    Bryan's signature; this function is just the mechanism:
-    ladders -> base verdict, escalations -> bumps, everything reports
-    its reason. TODO(Bryan): citations for the chosen thresholds.
     """
     idx = [
         i for i, t in enumerate(hours["time"]) if start_hour <= int(t[11:13]) < end_hour
@@ -151,8 +154,8 @@ def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -
     window = {
         "start_hour": start_hour,
         "end_hour": end_hour,
-        "min_feels_like_c": pick("feels_like_c", min),
-        "max_feels_like_c": pick("feels_like_c", max),
+        "min_feels_like_f": pick("feels_like_f", min),
+        "max_feels_like_f": pick("feels_like_f", max),
         "max_wind_kph": pick("wind_kph", max),
         "max_precip_mm": pick("precip_mm", max),
     }
@@ -162,8 +165,8 @@ def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -
     # too: apparent_temperature folds in humidity, which is the part
     # of heat that kills dogs
     ladder_checks = [
-        (window["min_feels_like_c"], COLD_LADDER, True, "feels-like low"),
-        (window["max_feels_like_c"], HEAT_LADDER, False, "feels-like high"),
+        (window["min_feels_like_f"], COLD_LADDER, True, "feels-like low"),
+        (window["max_feels_like_f"], HEAT_LADDER, False, "feels-like high"),
         (window["max_wind_kph"], WIND_LADDER, False, "wind"),
         (window["max_precip_mm"], PRECIP_LADDER, False, "precipitation"),
     ]
@@ -333,8 +336,8 @@ ORS_MATRIX_URL = "https://api.openrouteservice.org/v2/matrix/foot-walking"
 ORS_DIRECTIONS_URL = (
     "https://api.openrouteservice.org/v2/directions/foot-walking/geojson"
 )
-MAX_STOPS = 10          # abuse cap for the public API, and ORS-polite
-WALK_SPEED_M_PER_MIN = 83.33   # 5 km/h
+MAX_STOPS = 10  # abuse cap for the public API, and ORS-polite
+WALK_SPEED_M_PER_MIN = 83.33  # 5 km/h
 
 
 def _ors_key() -> str:

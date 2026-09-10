@@ -1,135 +1,184 @@
 # agentic_dog_walker — Agent guide (READ FIRST)
 
-## 0. How we work here — the collaboration contract (MOST IMPORTANT)
+## 1. What this project is
 
-**This is a LEARNING project. The deliverable is Bryan's understanding of modern LLM
-tool-use design — custom agent loops, native tool calling, and MCP — NOT finished code
-shipped fast.** This overrides the default "autonomous implementer" mode.
+A dog-walking route planner that demonstrates modern LLM tool use, headed for
+public hosting at **walker.purr.io**. Given a start point and a set of pets
+(each with an address and a 20/30/60-minute walk), it geocodes, solves the
+visiting order over real street distances, checks weather per dog's actual
+walk interval, and returns a structured plan with per-dog safety verdicts.
 
-- **Explain before doing.** Before writing or changing code, explain the concept, the
-  protocol shape (what JSON actually crosses the wire), and the design trade-off in play.
-- **One phase at a time.** Do a single concept/phase, then stop and check in. Bryan
-  drives the pace.
-- **Bryan writes the code that carries the learning** — the agent loop (plan/act/reflect),
-  tool-call parsing/validation, the MCP wiring. I scaffold, explain, and review. When I do
-  write code, walk through it rather than handing over a finished block.
-- **Best practices are an explicit goal** — surface and explain structure/typing/testing
-  decisions as we hit them.
-- **Teacher's register, permanently (Bryan, 2026-09-06, after repeated corrections).**
-  Every acronym/term of art gets a plain-language definition at first use — every time,
-  no "obvious" exceptions. Plain concept BEFORE the term (the name is the footnote).
-  Concrete example before abstraction. If a sentence needs a glossary, rewrite it.
-  The temptation doubles when defending a position — that's exactly when to write plainer.
-- Bryan's background: strong data engineering, solid Python; did the original LangChain
-  version of this repo (2024) and the well-spacing PyTorch project (2026). Wants the
-  modern replacement for what LangChain hid from him.
+The 2024 original was a LangChain/ReAct application: prompt-format tool calls
+regex-parsed from model prose, single-string tool inputs, judgment embedded in
+prompts, Folium maps rendered server-side, Streamlit UI, qwen2.5:14b via local
+Ollama. It worked, brittlely. The 2026 rebuild replaces every one of those
+mechanisms; the old implementation is frozen under `legacy/` for reference and
+nothing imports it.
 
-## 1. What this project is becoming (decided 2026-09-04)
+## 2. Architecture (current)
 
-Rebuild of the 2024 LangChain dog-walker as a **public demonstration of modern LLM
-tool use**, served at **walker.purr.io**, powered by a local model on Bryan's own
-hardware — no subscription APIs anywhere.
+**LLM sandwich:** language at the boundaries, deterministic code in the middle.
+Everything with an exact answer (route order, safety thresholds, schema
+validation) is plain code; the model translates intent and narrates results.
 
-Architecture (three pieces):
+- **Toolbox** (`src/dog_walker/toolbox.py`) — three typed functions returning
+  JSON-able dicts, each with a JSON Schema, joined in `REGISTRY`:
+  - `check_weather` — Open-Meteo hourly forecast (Fahrenheit, served by the
+    API via `temperature_unit`), assessed over the requested walk window only.
+    Verdicts (`OK/CAUTION/SHORTEN/DO_NOT_WALK`) come from threshold ladders +
+    combo escalations (e.g. wet-cold bump) in code — the model relays
+    verdicts, never derives them. Ladder rungs are policy; changing one trips
+    tests by design. (Citations for the chosen thresholds: still TODO.)
+  - `geocode_addresses` — Nominatim, batched (one call per roster), cached,
+    rate-spaced 1.1 s with identifying User-Agent per usage policy, 12-address
+    cap. Failures return per-address error slots, never raise.
+  - `optimize_route` — OpenRouteService walking-distance matrix + OR-Tools
+    Traveling-Salesman solve (round trip from stop 0) + street geometry as
+    GeoJSON for the browser. Haversine fallback with an honest
+    `uses_real_streets` flag. Returns a timeline with each dog's walk
+    interval — the input to per-stop weather checks.
+- **Agent** (`src/dog_walker/agent.py`) — a hand-rolled loop, no framework:
+  - `run_events(request)` generator yields one event per observable moment
+    (`start, plan, call, bounce, result, audit_veto, nudge, final, error`;
+    the stream ends with exactly one `final` or `error`). `run()` is a thin
+    CLI consumer of the same stream.
+  - **plan**: one reasoning-mode round; the reply (wherever the backend puts
+    it — `reasoning`/`thinking`/`content`) joins the message state.
+  - **act**: every proposed call is validated against its REGISTRY schema
+    (`validate_call`, jsonschema) BEFORE dispatch; violations bounce back as
+    tool-result errors written as prompts the model can act on. Execution
+    failures likewise become error results (`dispatch`).
+  - **reflect**: `audit_weather_coverage` — deterministic code that reads the
+    conversation, extracts each dog's walk interval from the route timeline,
+    and vetoes `submit_plan` unless a weather check covers that interval
+    within ~1 km (`_NEAR_DEG = 0.01`), PRESCRIBING the exact missing call
+    (vague veto messages livelocked the model; prescriptive ones heal in one
+    round).
+  - **finish**: the model ends by calling `submit_plan`, a tool with no
+    implementation whose validated arguments ARE the structured answer.
+    Downstream consumers render from `final.plan`, never from model prose.
+  - `chat()` normalizes two wire dialects (Ollama `/api/chat` vs
+    OpenAI-compatible `/chat/completions`: dict vs JSON-string arguments,
+    `tool_call_id`, `choices[0]` wrapping) and retries transient failures
+    (3 attempts, backoff; 429/5xx/network retried, 4xx raised).
+- **MCP facade** (`src/dog_walker/mcp_server.py`) — ~12 lines exposing the
+  same REGISTRY over the Model Context Protocol (stdio) so external hosts can
+  plug the tools in. The agent itself dispatches in-process — protocol at the
+  interop boundary only. SDK note: mcp 2.x renamed FastMCP → MCPServer.
+- **Service** (`src/dog_walker/service.py`) — FastAPI: `GET /presets`,
+  `POST /plan` (SSE stream of the event vocabulary), `GET /healthz`.
+  Armor: structured input only (pydantic caps: ≤6 pets, field lengths,
+  walk-minutes enum, preset XOR custom), per-IP rate limit (6/h),
+  single-flight queue (+3 waiting, then 429), 180 s run deadline, CORS pinned
+  to the site, per-run transcripts in `runs/` (gitignored). Full contract and
+  the honest limits of each layer: **`docs/SERVICE.md`** — keep it in sync.
+- **Presets** (`src/dog_walker/presets.py`) — anonymous visitors get curated
+  rosters with coordinates frozen from live lookups and seeded into the
+  geocode cache at startup: preset runs cost zero Nominatim calls. Custom
+  mode is structured-form only; free text never reaches the model from the
+  network. `build_request()` renders validated fields into the prompt.
 
-- **fossil** (Dell Latitude 5430, headless Debian 13, on the tailnet at 100.71.229.15,
-  hostname `fossil`): runs Ollama (bound to 100.71.229.15:11434, tailnet-only —
-  deliberate; nothing listens on localhost) and will run the agent as a FastAPI service.
-  Passwordless sudo for user bryan; lid-ignore + sleep masked; unattended-upgrades on.
-- **Tailscale Funnel** exposes ONLY the agent's API publicly (structured plan-walk
-  requests only — never free-form prompts; rate-limited; single-flight queue; ≤6 pets).
-- **walker.purr.io**: static Astro page on Cloudflare Pages (Route 53 CNAME, Bryan
-  clicks the custom-domain step), purr.io family style. Streams the agent's
-  plan/act/reflect trace over SSE; renders the route with MapLibre from GeoJSON.
+**Model backends** (`BACKENDS` in agent.py): default is OpenRouter
+(`qwen/qwen3-8b`, `OPENROUTER_API_KEY` in `.env`); `LOCAL_LLM=fossil` selects
+the local Ollama box. qwen3:8b was selected by a five-fixture bake-off (5/5;
+qwen2.5:3b fails relative dates, qwen2.5:7b asks permission instead of
+calling); the fixtures in `experiments/` remain a ~2-minute regression suite
+to rerun after any system-prompt change and against any candidate model.
 
-The agent itself: **hand-rolled loop** (no LangChain) doing plan → act → reflect, using
-Ollama's native tool calling (`/api/chat` with `tools`).
+### fossil (the local inference box)
 
-**Tool architecture: FACADE design (decided 2026-09-05, after reviewing MCP-in-production
-criticism).** Tools (geocode/Nominatim, weather/Open-Meteo with deterministic safety
-flags, TSP routing/OR-Tools + OpenRouteService) live as a plain Python module — typed
-functions + JSON schemas — that the agent dispatches IN-PROCESS (we own both ends of the
-wire; MCP-client plumbing for our own local tools would be cargo-culting). A thin **MCP
-server facade** (official SDK / FastMCP) wraps the SAME functions as a separate entry
-point, so any MCP host (Claude Desktop etc.) can plug in — the interop boundary is what
-MCP is actually for, and the site writeup says exactly that. Folium is dropped; the
-route tool returns GeoJSON for the browser.
+Dell Latitude 5430 (i5-1245U, 16 GB single-channel DDR4-3200, 256 GB NVMe),
+headless Debian 13, hostname `fossil`, tailnet address 100.71.229.15.
+Provisioned 2026-09 as the project's inference server; **effectively retired
+2026-09-10** (OpenRouter default: rented does more in seconds than local
+thinking does in minutes, and electricity likely exceeds token cost) — but
+the plumbing and this documentation stay intact for model experiments.
 
-## 2. Model facts (measured on fossil, 2026-09-04)
+- Setup: passwordless sudo (user `bryan`), lid-switch ignored + sleep/
+  suspend/hibernate targets masked (closes like a laptop, runs like a
+  server), unattended security upgrades. SSH keys in place from the other
+  tailnet machines.
+- Ollama bound **tailnet-only** (`OLLAMA_HOST=100.71.229.15` via systemd
+  override) — nothing listens on localhost, so even on-box CLI use needs
+  `OLLAMA_HOST=100.71.229.15`. Models pulled: qwen2.5:7b, qwen2.5:3b,
+  qwen3:8b.
+- Measured performance (qwen2.5:7b Q4, 2026-09-04): **~5.2 tok/s
+  generation** — memory-bandwidth-bound, so thread count barely moves it —
+  and prompt ingestion **~33 tok/s at `num_thread: 10`**, the measured sweet
+  spot (12 threads is *worse*: hyperthread contention past the 10 physical
+  cores). That measurement is why `chat()` pins `num_thread: 10` for the
+  Ollama dialect. No thermal throttling under sustained load.
+- Known cheap upgrade if ever revived: the second SODIMM slot is empty;
+  16 GB more (~$30) doubles memory bandwidth ≈ doubles tok/s. The original
+  hosting plan (agent service on fossil behind Tailscale Funnel) was
+  superseded by the OpenRouter decision; see Roadmap → Hosting.
 
-- qwen2.5:7b Q4: **~5.2 tok/s generation** (memory-bandwidth-bound; single-channel
-  DDR4 — a second 16GB SODIMM would roughly double it), prompt eval **~33 tok/s at
-  `num_thread: 10`** (the sweet spot — 12 threads is worse; always pass num_thread 10).
-- No thermal throttling under sustained load.
-- Design consequences: terse system prompts, lean tool schemas, short outputs, rely on
-  Ollama KV cache. Phase 1 bake-off vs qwen3:8b (thinking mode) decides the model.
+## 3. How it got here (rebuild changelog, 2026-09)
 
-## 3. Phases
+1. **Native tool calling replaced ReAct.** Measured findings that shaped
+   everything after: schemas steer but nothing enforces them (models invent
+   and omit arguments); a required field the context can't fill produces
+   confident garbage (models have no clock — inject today's date per
+   request); numeric fidelity tool→prose is good; severity judgment from raw
+   numbers is brittle. Hence: validation layer, date injection, judgment
+   moved into tools as deterministic flags.
+2. **Model bake-off** on five scripted fixtures (call structure, relative
+   dates, over-eager-call trap, tool choice, safety-flag relay) →
+   qwen3:8b. The first eval run mostly found instrument bugs; prose substring
+   checks are triage-only (see fixtures.py docstring) — durable grading uses
+   structured outputs.
+3. **Toolbox port** from `legacy/dog_walker_2024/tools/`: typed signatures
+   replaced single-string inputs; prose outputs became structured dicts;
+   whole-day weather averaging became windowed assessment; verdict tiers and
+   escalations added; Folium dropped for GeoJSON; walk durations became the
+   20/30/60 enum with the timeline model (each dog's walk is a solo loop from
+   its own home, so visiting order is pure geography and durations shape the
+   schedule; no group walks).
+4. **Multi-backend chat** with dialect normalization; OpenRouter made the
+   default (local thinking runs took minutes; rented does more in seconds;
+   electricity > token cost).
+5. **Agent loop** with plan/act/reflect as above. Two bugs found by tests and
+   live runs, kept as comments where they happened: the auditor's location
+   tolerance (a start-point check "covered" a dog 3 km away) and the
+   vague-veto livelock.
+6. **MCP facade** after deciding against agent-as-MCP-client (owning both
+   ends of a local wire makes protocol plumbing cargo-culting; the facade
+   serves the actual interop case).
+7. **Event-stream refactor + service armor + presets** (Phase 4), for the
+   public site.
 
-1. ✅ Model bake-off DONE 2026-09-05 (commit 48d7be2): **qwen3:8b selected, 5/5**
-   (qwen2.5:3b 4/5 fails relative dates; qwen2.5:7b 3/5 defers/asks permission).
-   Fixtures in experiments/ double as a regression suite (~2 min) — rerun after any
-   system-prompt change. Prose checks are triage-only (see fixtures.py docstring).
-2. ✅ Tools DONE 2026-09-08: toolbox.py (check_weather with Bryan's verdict
-   ladders + escalations, geocode_addresses batched/cached/polite, optimize_route
-   with timeline + GeoJSON) + mcp_server.py facade (mcp 2.x SDK: MCPServer, the
-   class tutorials still call FastMCP; verified over stdio with a real client).
-   28 offline tests. Threshold citations still TODO(Bryan).
-   **Walk-duration model (Bryan, 2026-09-07):** each dog's walk is 20/30/60 min
-   (WALK_DURATIONS enum), taken as a solo loop from its own home — no group walks,
-   ever solo. So visiting order stays pure geography (TSP over transit), and
-   durations drive the TIMELINE (optimize_route returns per-dog walk intervals).
-   ROADMAP: per-stop weather checks against those intervals (agent-side, Phase 3);
-   pet time-window constraints via OR-Tools time dimension (future).
-3. ✅ Agent loop DONE 2026-09-08 (src/dog_walker/agent.py). Mode change: Bryan
-   chose to STUDY a completed implementation and annotate it rather than write it
-   ("I would rather study a completed example and annotate it than guess") — his
-   annotation pass is the remaining learning step. Live-verified full cycle:
-   plan (think-on) → act with validate-before-dispatch bounces → submit_plan
-   vetoed by the deterministic auditor → model made the PRESCRIBED missing
-   weather call → accepted, structured per-dog verdicts out. Two bugs found by
-   tests/live-run and fixed with comments telling the story: _NEAR_DEG 0.03→0.01
-   (start-location check "covered" a dog 3 km away) and vague audit messages
-   livelock (now prescribe exact call args).
-   **Phase-3 syllabus, extracted from live lesson-2 traces (2026-09-07/08):**
-   (a) validate-before-dispatch with bounce-and-retry (jsonschema against REGISTRY
-   schemas; lesson 2 dispatches raw). (b) The reflect loop-back: walk intervals
-   only exist AFTER optimize_route returns the timeline, so weather must be
-   re-checked per dog's actual interval/location afterward — an information-
-   dependency no upfront planning fixes (think-on run checked per-dog locations
-   spontaneously but still used the 13:00 departure hour for a 16:09 walk).
-   (c) Reasoning mode measurably improves orchestration (think-off: one global
-   weather check; think-on: per-dog checks, parallel calls in one round) → use
-   think for the plan step, not for mechanical calls. (d) UI takes timelines from
-   tool output, never from the model's retelling (it drops details).
-4. FastAPI + SSE + hardening (queue, rate limit, input caps).
-5. Funnel + Astro frontend + walker.purr.io CNAME.
-6. README/essay pass; the site explains its own architecture (including the
-   facade rationale: native calling where we own both ends, MCP at the boundary).
-7. CANDIDATE (Bryan-approved 2026-09-09): **code-execution vs schema-calling
-   bake-off.** Same task, same toolbox, two idioms: our loop (one validated
-   JSON tool call per round) vs the rising "code execution" pattern (model
-   writes one program using the tools; sandboxed harness runs it). Measure
-   rounds, tokens, wall-clock, failure modes — at qwen3:8b AND a frontier
-   model via OpenRouter. Expected findings worth publishing: the reflect
-   problem dissolves in code (the program derives weather windows from the
-   timeline itself — the auditor's whole reason to exist becomes a for-loop);
-   small models likely fail wholesale where the loop fails one bounce at a
-   time; token savings modest at 3 tools (the 32k-token critiques assume
-   huge catalogs). Needs a real sandbox decision before any public exposure.
-   A dated, graded comparison of the two competing 2026 architectures — the
-   most on-brand possible ending for the site essay.
+## 4. Environment & commands
 
-## 4. Legacy code (the 2024 LangChain version)
+- uv project, Python 3.12. `uv sync`.
+- Tests: `uv run --with pytest python -m pytest` — 53 offline tests, no
+  network, no model (scripted-backend fixtures prove the event loop).
+  (Bare `uv run pytest` can fail to spawn yet exit 0 — never trust it in a
+  `&&` chain.)
+- Agent CLI: `uv run python -m dog_walker.agent "<request>"`.
+- Service: `uv run uvicorn dog_walker.service:app --port 8010`.
+- Model-compat check: `uv run python experiments/runner.py <model>`.
+- Style: no lambdas — named functions with docstrings.
+- Secrets in `.env` (gitignored): `OPENROUTER_API_KEY`,
+  `OPENROUTESERVICE_API_KEY`. Never in code or committed files.
 
-`src/dog_walker/` is the old implementation — keep as reference; port tool logic out of
-`tools/` (geocoding.py, weather.py, route_optimizer.py). agent.py (ReAct via
-`OllamaLLM`) and mapping.py (Folium) are being replaced outright. Old commands in git
-history if needed. OPENROUTESERVICE_API_KEY still comes from `.env` (free key).
+## 5. Roadmap / open questions
 
-## 5. Environment
-
-- uv project, Python 3.12. `uv sync`. Tests: `uv run --with pytest python -m pytest`
-  (bare `uv run pytest` can fail to spawn yet exit 0 — never trust it in a && chain).
-- Dev happens on ichabod (Mac) or pepper (Arch); deploy target is fossil via
-  `ssh bryan@fossil` (keys in place from both).
+- **Hosting** (next): where the service runs, now that fossil is retired —
+  candidates: fossil anyway, small VPS/free tier, serverless (awkward:
+  OR-Tools + SSE). Decide before the frontend wiring; affects CORS and the
+  Funnel-vs-plain question.
+- **Frontend**: Astro page on Cloudflare Pages at walker.purr.io (Route 53
+  CNAME; custom-domain step happens in the Cloudflare dashboard), purr.io
+  family style; renders the SSE trace live and the route from `final.plan` +
+  GeoJSON.
+- **README/essay pass**: the site explains its own architecture, including
+  the facade rationale and the sandwich boundary.
+- **Candidate experiment**: code-execution vs schema-calling bake-off — same
+  toolbox, two idioms (validated per-round JSON calls vs one model-written
+  program run in a sandbox), measured on rounds/tokens/wall-clock/failure
+  modes at qwen3:8b and a frontier model. Expected: the reflect problem
+  dissolves in code (a program derives weather windows from the timeline
+  itself); small models fail wholesale where the loop fails one bounce at a
+  time; token savings modest at 3 tools. Needs a sandbox decision before
+  anything public.
+- Threshold citations for the weather ladders.
