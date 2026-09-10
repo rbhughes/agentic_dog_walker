@@ -1,0 +1,19 @@
+{
+  "name": "walker-site",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "generate-types": "wrangler types",
+    "deploy": "npm run build && wrangler deploy",
+    "preview": "npm run build && wrangler dev"
+  },
+  "dependencies": {
+    "astro": "^7.2.0",
+    "maplibre-gl": "^5.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.131.0"
+  }
+}
