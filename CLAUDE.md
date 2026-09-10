@@ -188,3 +188,22 @@ the plumbing and this documentation stay intact for model experiments.
   time; token savings modest at 3 tools. Needs a sandbox decision before
   anything public.
 - Threshold citations for the weather ladders.
+- **Buffer time (TODO)**: some pets need prep before/after the walk (slow
+  elevators, meds, harness wrestling). Add optional per-pet pre/post
+  minutes; plumbing: Pet model + build_request + optimize_route's timeline
+  arithmetic (buffer extends the stop's occupied interval but not the
+  dog's OUTSIDE interval — weather checks still cover only walk_start..
+  walk_end).
+- **Dog hardiness (TODO)**: breeds differ in heat/cold tolerance. Add an
+  arbitrary per-dog hardiness score that shifts that dog's verdict
+  thresholds (policy design: score offsets the ladder rungs, e.g. ±5F per
+  point; keep it in the TOOL — per-dog deterministic verdicts, never model
+  judgment). Schema + assess_walk_safety + per-dog verdicts in the
+  submit_plan audit.
+- **Model picker (DONE 2026-09-11)**: service MODELS allowlist (cost
+  armor — browser picks from the list, never names arbitrary models),
+  optional `model` on /plan threaded through run_events, /info returns the
+  list, site renders a selector. Lineup: qwen3-8b (default), Claude Haiku
+  4.5, Gemini 2.5 Flash Lite, Llama 3.3 70B, Mistral Small 3.2 — verify
+  slugs/prices on OpenRouter when touching. chat() retries a 400 once
+  without the reasoning block (some models reject it).

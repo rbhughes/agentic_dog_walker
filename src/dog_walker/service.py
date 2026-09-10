@@ -56,6 +56,19 @@ ALLOWED_ORIGINS = [
 
 RUNS_DIR = Path(__file__).resolve().parents[2] / "runs"
 
+# The model allowlist: the browser picks from THESE, never names an
+# arbitrary model (cost control -- an open passthrough would let
+# anyone run frontier models on our OpenRouter credits). Labels are
+# what the site's picker shows. Verify slugs/prices on OpenRouter
+# before adding; every entry must support tool calling.
+MODELS: dict[str, str] = {
+    "qwen/qwen3-8b": "Qwen3 8B — the bake-off winner (default)",
+    "anthropic/claude-haiku-4.5": "Claude Haiku 4.5 — frontier-lab small model",
+    "google/gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite — Google's cheap tier",
+    "meta-llama/llama-3.3-70b-instruct": "Llama 3.3 70B — big open weights",
+    "mistralai/mistral-small-3.2-24b-instruct": "Mistral Small 3.2 24B",
+}
+
 
 # ---------------------------------------------------------------------
 # request models: the schema is the front door's referee. Anything
@@ -81,6 +94,7 @@ class PlanRequest(BaseModel):
     """Either a preset id, or a full custom roster -- never both."""
 
     preset: str | None = None
+    model: str | None = None  # allowlist-validated; None = default
     start_address: str | None = Field(
         default=None, min_length=4, max_length=MAX_FIELD_CHARS
     )
@@ -89,6 +103,8 @@ class PlanRequest(BaseModel):
 
     @model_validator(mode="after")
     def preset_xor_custom(self):
+        if self.model is not None and self.model not in MODELS:
+            raise ValueError(f"unknown model; pick from {sorted(MODELS)}")
         custom = (self.start_address, self.start_time, self.pets)
         if self.preset is not None:
             if any(f is not None for f in custom):
@@ -199,7 +215,11 @@ def info() -> dict:
 
     backend_name = os.environ.get("LOCAL_LLM") or "openrouter"
     backend = BACKENDS[backend_name]
-    return {"model": backend["model"], "backend": backend_name}
+    return {
+        "model": backend["model"],
+        "backend": backend_name,
+        "models": [{"id": mid, "label": label} for mid, label in MODELS.items()],
+    }
 
 
 @app.get("/presets")
@@ -261,7 +281,7 @@ def plan(body: PlanRequest, request: Request) -> StreamingResponse:
             yield _sse({"event": "accepted", "run_id": run_id})
             with _run_slot:
                 _waiting.release()  # promoted from waiting to running
-                for ev in run_events(prompt):
+                for ev in run_events(prompt, model=body.model):
                     events.append(ev)
                     yield _sse(ev)
                     if time.monotonic() - started > RUN_DEADLINE_S:

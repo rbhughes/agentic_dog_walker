@@ -43,6 +43,9 @@
     <main>
       <section id="launcher">
         <h2>Run a demo</h2>
+        <label class="modelrow">Model
+          <select id="model-select"><option value="">default</option></select>
+        </label>
         <div id="preset-cards" class="cards">
           <p class="muted">loading presets&hellip;</p>
         </div>
@@ -197,6 +200,11 @@
   .standfirst { color: var(--ink-2); font-size: 1.05rem; max-width: 62ch; }
   main { max-width: 880px; margin: 0 auto; padding: 0 2.1rem 2rem; }
   h2 { font-size: 1.2rem; margin: 1.6rem 0 0.6rem; }
+  .modelrow {
+    display: flex; flex-direction: row; align-items: center;
+    gap: 0.5rem; margin: 0 0 0.8rem; font-size: 0.9rem;
+  }
+  .modelrow select { max-width: 100%; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.8rem; }
   .card {
     background: var(--surface); border: 1px solid var(--border);

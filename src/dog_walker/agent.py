@@ -155,6 +155,13 @@ def chat(backend: dict, messages: list, think: bool = False) -> dict:
         except urllib.error.HTTPError as e:
             if e.code == 429 or e.code >= 500:
                 last_error = e
+            elif e.code == 400 and body.pop("reasoning", None) is not None:
+                # some models reject the reasoning block outright;
+                # drop it and retry once without
+                req = urllib.request.Request(
+                    backend["url"], json.dumps(body).encode(), headers
+                )
+                last_error = e
             else:
                 raise
         except (urllib.error.URLError, TimeoutError, OSError) as e:
@@ -369,10 +376,16 @@ def _plan_text(reply: dict) -> str:
     return ""
 
 
-def run_events(request: str, backend_name: str | None = None):
+def run_events(
+    request: str, backend_name: str | None = None, model: str | None = None
+):
     """The agent: plan, act with validation, reflect via the auditor,
-    finish through submit_plan. Yields events (vocabulary above)."""
-    backend = BACKENDS[backend_name or os.environ.get("LOCAL_LLM") or "openrouter"]
+    finish through submit_plan. Yields events (vocabulary above).
+    `model` overrides the backend's default (the service validates it
+    against an allowlist before it gets here)."""
+    backend = dict(BACKENDS[backend_name or os.environ.get("LOCAL_LLM") or "openrouter"])
+    if model:
+        backend["model"] = model
     today = datetime.now().astimezone()
     yield {"event": "start", "model": backend["model"], "backend": backend["url"]}
 

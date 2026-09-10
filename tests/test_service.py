@@ -107,9 +107,17 @@ def test_exception_in_stream_becomes_error_event(monkeypatch):
 client = TestClient(app)
 
 
-def test_info_reports_model_and_backend():
+def test_info_reports_model_backend_and_picker_list():
     payload = client.get("/info").json()
     assert "model" in payload and "backend" in payload
+    ids = [m["id"] for m in payload["models"]]
+    assert "qwen/qwen3-8b" in ids
+
+
+def test_off_list_model_is_a_422():
+    r = client.post("/plan", json={"preset": "lakeview-classic",
+                                   "model": "openai/o5-preview-ultra"})
+    assert r.status_code == 422
 
 
 def test_presets_endpoint_lists_the_rosters():

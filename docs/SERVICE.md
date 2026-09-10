@@ -48,8 +48,14 @@ follow (vocabulary below); the stream always ends with exactly one
 
 ### `GET /info`
 
-`{"model": ..., "backend": ...}` — what a run will use; the site
-renders model identity from this, never hard-coded.
+`{"model": ..., "backend": ..., "models": [{id, label}]}` — the
+default model, plus the allowlist the site's picker renders. Model
+identity is never hard-coded in the site.
+
+`POST /plan` accepts an optional `"model"` field validated against
+the allowlist (422 otherwise) — the browser can pick, never name an
+arbitrary model (cost armor: an open passthrough would spend our
+OpenRouter credits on anyone's favorite frontier model).
 
 ## The event vocabulary
 

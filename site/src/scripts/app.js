@@ -44,7 +44,12 @@ const el = {
   advice: document.getElementById("advice"),
   pill: document.getElementById("status-pill"),
   reset: document.getElementById("reset"),
+  modelSelect: document.getElementById("model-select"),
 };
+
+function chosenModel() {
+  return el.modelSelect.value || undefined;
+}
 
 // ---------------------------------------------------------------------
 // reset: clear the run and result, back to the launcher
@@ -99,7 +104,7 @@ async function loadPresets() {
 }
 
 function startPreset(e) {
-  runPlan({ preset: e.target.dataset.preset });
+  runPlan({ preset: e.target.dataset.preset, model: chosenModel() });
 }
 
 // ---------------------------------------------------------------------
@@ -156,6 +161,7 @@ function submitCustom(e) {
     start_address: data.get("start_address"),
     start_time: data.get("start_time"),
     pets,
+    model: chosenModel(),
   });
 }
 
@@ -434,6 +440,13 @@ async function loadInfo() {
       " inference · served from a laptop in a closet";
     const name = document.getElementById("model-name");
     if (name) name.textContent = info.model;
+    for (const m of info.models || []) {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = m.label;
+      if (m.id === info.model) opt.selected = true;
+      el.modelSelect.appendChild(opt);
+    }
   } catch {
     el.pill.textContent = "served from a laptop in a closet";
   }
