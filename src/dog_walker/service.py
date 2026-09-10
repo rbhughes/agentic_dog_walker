@@ -188,6 +188,20 @@ def healthz() -> dict:
     return {"ok": True}
 
 
+@app.get("/info")
+def info() -> dict:
+    """Which model/backend a run will use -- the site renders this
+    instead of hard-coding, so a future model picker needs no site
+    changes."""
+    import os
+
+    from dog_walker.agent import BACKENDS
+
+    backend_name = os.environ.get("LOCAL_LLM") or "openrouter"
+    backend = BACKENDS[backend_name]
+    return {"model": backend["model"], "backend": backend_name}
+
+
 @app.get("/presets")
 def presets() -> list[dict]:
     return [

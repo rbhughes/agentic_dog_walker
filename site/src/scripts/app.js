@@ -292,15 +292,36 @@ function escapeHtml(s) {
 // the answer: structured data only
 // ---------------------------------------------------------------------
 
+const VERDICT_COLORS = {
+  OK: "#2f7d33",
+  CAUTION: "#b26a00",
+  SHORTEN: "#d7301f",
+  DO_NOT_WALK: "#990000",
+};
+
+function visitSequence() {
+  // stop name -> visit number (1-based), from the route tool's order;
+  // index 0 is the start and gets no number
+  const seq = {};
+  (routeResult?.order || []).forEach(assign);
+  function assign(name, i) {
+    if (i > 0) seq[name] = i;
+  }
+  return seq;
+}
+
 function renderResult(plan) {
   el.result.hidden = false;
+  const seq = visitSequence();
 
   el.verdicts.innerHTML = "";
   for (const w of plan.walks || []) {
     const card = document.createElement("div");
     card.className = `card verdict-card bl-${w.verdict}`;
+    const n = seq[w.pet];
     card.innerHTML = `
-      <h3>${escapeHtml(w.pet)}</h3>
+      <h3>${n ? `<span class="mk mk-inline" style="background:${
+        VERDICT_COLORS[w.verdict] || "#256abf"}">${n}</span> ` : ""}${escapeHtml(w.pet)}</h3>
       <p><span class="v v-${w.verdict}">${w.verdict.replaceAll("_", " ")}</span>
          &nbsp;${escapeHtml(w.walk_start)}–${escapeHtml(w.walk_end)}</p>
       ${w.notes ? `<p class="small">${escapeHtml(w.notes)}</p>` : ""}`;
@@ -317,14 +338,16 @@ function renderResult(plan) {
   }
 
   el.advice.textContent = plan.overall_advice || "";
-  drawMap();
+  drawMap(plan, seq);
   el.result.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 let map = null;
 
-function drawMap() {
+function drawMap(plan, seq) {
   const stops = routeCall?.stops || [];
+  const verdictByPet = {};
+  for (const w of plan?.walks || []) verdictByPet[w.pet] = w.verdict;
   const geometry = routeResult?.geometry || null;
   if (!stops.length) {
     document.getElementById("map").style.display = "none";
@@ -383,13 +406,38 @@ function drawMap() {
                  "line-dasharray": [2, 2], "line-opacity": 0.7 },
       });
     }
-    stops.forEach((s, i) => {
-      new maplibregl.Marker({ color: i === 0 ? "#d95f00" : "#256abf" })
+    stops.forEach(addStopMarker);
+
+    function addStopMarker(s, i) {
+      // numbered by visit order, colored by that dog's verdict;
+      // the start stop gets an orange "S"
+      const n = seq?.[s.name];
+      const dot = document.createElement("div");
+      dot.className = "mk";
+      dot.textContent = n ? String(n) : "S";
+      dot.style.background = n
+        ? VERDICT_COLORS[verdictByPet[s.name]] || "#256abf"
+        : "#d95f00";
+      new maplibregl.Marker({ element: dot })
         .setLngLat([s.lon, s.lat])
         .setPopup(new maplibregl.Popup({ offset: 18 }).setText(s.name))
         .addTo(map);
-    });
+    }
+  }
+}
+
+async function loadInfo() {
+  try {
+    const info = await apiFetch("/info").then((r) => r.json());
+    el.pill.textContent =
+      `${info.model} · ${info.backend === "openrouter" ? "rented" : "local"}` +
+      " inference · served from a laptop in a closet";
+    const name = document.getElementById("model-name");
+    if (name) name.textContent = info.model;
+  } catch {
+    el.pill.textContent = "served from a laptop in a closet";
   }
 }
 
 loadPresets();
+loadInfo();

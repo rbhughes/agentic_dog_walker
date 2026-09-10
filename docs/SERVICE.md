@@ -46,6 +46,11 @@ follow (vocabulary below); the stream always ends with exactly one
 
 `{"ok": true}` liveness probe.
 
+### `GET /info`
+
+`{"model": ..., "backend": ...}` — what a run will use; the site
+renders model identity from this, never hard-coded.
+
 ## The event vocabulary
 
 Produced by `agent.run_events()`; the service relays them verbatim.

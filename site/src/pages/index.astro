@@ -24,7 +24,7 @@
       </a>
       <span class="brand">Agentic Dog Walker</span>
       <a href="https://github.com/rbhughes/agentic_dog_walker">GitHub</a>
-      <span class="pill" id="status-pill">qwen3-8b · rented inference · served from a laptop in a closet</span>
+      <span class="pill" id="status-pill">served from a laptop in a closet</span>
     </nav>
 
     <header class="masthead">
@@ -96,10 +96,11 @@
       </section>
 
       <section id="about">
-        <h2>What you just watched</h2>
+        <h2>How it works</h2>
         <p>
           The agent is a hand-rolled loop &mdash; no framework &mdash;
-          around a small model (qwen3-8b) doing native tool calling.
+          around a small model (<span id="model-name">loading&hellip;</span>)
+          doing native tool calling.
           Three mechanisms keep it honest: a <strong>referee</strong>
           that validates every tool call against its schema before
           anything executes (violations bounce back as errors the
@@ -109,10 +110,27 @@
           check at that dog's location; and a <strong>structured
           finish line</strong>: the model ends by calling a
           <code>submit_plan</code> tool whose validated arguments are
-          the answer you see above. Weather verdicts come from
+          the final plan. Weather verdicts come from
           threshold tables in code, not from the model's judgment
           &mdash; the model relays them and plans around them.
         </p>
+        <h2>The tools</h2>
+        <ul class="tools">
+          <li><strong>geocode_addresses</strong> &mdash; turns street
+            addresses into coordinates
+            (Nominatim / OpenStreetMap; batched and cached).</li>
+          <li><strong>check_weather</strong> &mdash; hourly forecast
+            for a place, date, and time window (Open-Meteo), reduced
+            in code to a deterministic verdict: OK, CAUTION, SHORTEN,
+            or DO&nbsp;NOT&nbsp;WALK.</li>
+          <li><strong>optimize_route</strong> &mdash; real
+            street-walking distances (OpenRouteService) fed to a
+            route-ordering solver (OR-Tools), returning the visiting
+            order, each dog's walk interval, and the map geometry.</li>
+          <li><strong>submit_plan</strong> &mdash; the finish line: a
+            tool with no implementation, whose schema-validated
+            arguments are the plan itself.</li>
+        </ul>
         <p>
           The service runs on a retired laptop in a closet (the
           inference is rented per-token); the whole stack costs about
@@ -249,6 +267,20 @@
     border-radius: 12px; padding: 0.8rem 1rem; color: var(--ink-2);
   }
   #about p { max-width: 68ch; color: var(--ink-2); }
+  .tools { max-width: 68ch; color: var(--ink-2); padding-left: 1.2rem; }
+  .tools li { margin: 0.4rem 0; }
+  .mk-inline {
+    display: inline-flex; width: 22px; height: 22px;
+    font-size: 0.75rem; vertical-align: text-bottom;
+    border-width: 1.5px; box-shadow: none;
+  }
+  .mk {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800; font-size: 0.85rem;
+    border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    cursor: pointer;
+  }
   footer {
     border-top: 1px solid var(--hairline); background: var(--surface);
     margin-top: 2rem; padding: 1rem 2.1rem; color: var(--muted); font-size: 0.85rem;

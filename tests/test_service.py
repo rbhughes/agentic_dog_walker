@@ -107,6 +107,11 @@ def test_exception_in_stream_becomes_error_event(monkeypatch):
 client = TestClient(app)
 
 
+def test_info_reports_model_and_backend():
+    payload = client.get("/info").json()
+    assert "model" in payload and "backend" in payload
+
+
 def test_presets_endpoint_lists_the_rosters():
     listed = client.get("/presets").json()
     assert {p["id"] for p in listed} == set(PRESETS)
