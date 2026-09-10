@@ -134,6 +134,16 @@ Site can't reach the API — check in this order:
 4. `tailscale status` (node offline? key expired? `sudo tailscale up`).
 5. Visitors seeing HTTP 429: that's the armor working (rate limit or
    queue full), not an outage — see docs/SERVICE.md.
+6. **The site fails ONLY on tailnet machines** (yours): MagicDNS
+   resolves the API host to its private tailnet address, and Chrome's
+   Local Network Access policy blocks public-page fetches to private
+   addresses (page-load fetches have no user gesture, so the
+   permission is auto-denied). Off-tailnet visitors resolve the
+   public Funnel ingress and are unaffected — verified end-to-end.
+   To test from a tailnet machine: use the Astro dev server
+   (`npm run dev` in site/, localhost origin is exempt), click a
+   button (a user gesture may surface Chrome's permission prompt),
+   or point Chrome's Secure DNS at a public resolver.
 
 ## If fossil dies
 
