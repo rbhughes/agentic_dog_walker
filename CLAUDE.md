@@ -170,10 +170,13 @@ the plumbing and this documentation stay intact for model experiments.
   Verified: unattended reboot to healthy public API in ~30 s. Ops runbook:
   **FOSSIL.md**. Inference stays on OpenRouter. Frontend must call that
   URL; CORS already pins walker.purr.io.
-- **Frontend**: Astro page on Cloudflare Pages at walker.purr.io (Route 53
-  CNAME; custom-domain step happens in the Cloudflare dashboard), purr.io
-  family style; renders the SSE trace live and the route from `final.plan` +
-  GeoJSON.
+- **Frontend: LIVE at https://walker.purr.io (2026-09-11).** Astro on
+  Cloudflare Pages (project agentic-dog-walker; classic Pages — the
+  Workers-flavored tooling once injected a server adapter, reverted),
+  Route 53 CNAME + custom domain attached, TLS verified, CORS confirmed
+  for the final origin. Known quirk: on tailnet machines Chrome's Local
+  Network Access blocks the page's API fetches (MagicDNS resolves fossil
+  privately) — public visitors unaffected; see FOSSIL.md troubleshooting.
 - **README/essay pass**: the site explains its own architecture, including
   the facade rationale and the sandwich boundary.
 - **Candidate experiment**: code-execution vs schema-calling bake-off — same
