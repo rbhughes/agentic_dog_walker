@@ -75,7 +75,10 @@
       </section>
 
       <section id="run" hidden>
-        <h2 id="run-title">Planning&hellip;</h2>
+        <div class="runhead">
+          <h2 id="run-title">Planning&hellip;</h2>
+          <button id="reset" class="reset" hidden>&#8634; Start over</button>
+        </div>
         <div id="trace" class="trace"></div>
       </section>
 
@@ -204,6 +207,15 @@
   .petrow button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 1.1rem; }
   .small { font-size: 0.8rem; }
   .muted { color: var(--muted); }
+  .runhead { display: flex; align-items: center; gap: 1rem; }
+  .runhead h2 { margin-right: auto; }
+  .reset {
+    background: var(--surface); color: var(--brand);
+    border: 2px solid var(--brand); border-radius: 10px;
+    padding: 0.5rem 1.1rem; font-weight: 800; font-size: 0.95rem;
+    cursor: pointer;
+  }
+  .reset:hover { background: var(--brand); color: #fff; }
   .trace {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 12px; padding: 0.8rem 1rem;

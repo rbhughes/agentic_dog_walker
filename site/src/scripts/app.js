@@ -43,7 +43,33 @@ const el = {
   timeline: document.getElementById("timeline"),
   advice: document.getElementById("advice"),
   pill: document.getElementById("status-pill"),
+  reset: document.getElementById("reset"),
 };
+
+// ---------------------------------------------------------------------
+// reset: clear the run and result, back to the launcher
+// ---------------------------------------------------------------------
+
+function resetAll() {
+  el.run.hidden = true;
+  el.result.hidden = true;
+  el.reset.hidden = true;
+  el.trace.innerHTML = "";
+  el.verdicts.innerHTML = "";
+  el.timeline.innerHTML = "";
+  el.advice.textContent = "";
+  routeCall = routeResult = null;
+  if (map) {
+    map.remove();
+    map = null;
+  }
+  document.getElementById("launcher").scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+}
+
+el.reset.addEventListener("click", resetAll);
 
 // ---------------------------------------------------------------------
 // presets
@@ -184,6 +210,7 @@ async function runPlan(body) {
     traceLine("t-error", `Stream broke: ${err.message}`);
   } finally {
     document.querySelectorAll("#launcher button").forEach((b) => (b.disabled = false));
+    el.reset.hidden = false;
   }
 }
 
