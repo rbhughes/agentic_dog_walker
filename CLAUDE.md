@@ -108,10 +108,11 @@ the plumbing and this documentation stay intact for model experiments.
   spot (12 threads is *worse*: hyperthread contention past the 10 physical
   cores). That measurement is why `chat()` pins `num_thread: 10` for the
   Ollama dialect. No thermal throttling under sustained load.
-- Known cheap upgrade if ever revived: the second SODIMM slot is empty;
-  16 GB more (~$30) doubles memory bandwidth ≈ doubles tok/s. The original
-  hosting plan (agent service on fossil behind Tailscale Funnel) was
-  superseded by the OpenRouter decision; see Roadmap → Hosting.
+- Known cheap upgrade if inference is ever revived: the second SODIMM slot
+  is empty; 16 GB more (~$30) doubles memory bandwidth ≈ doubles tok/s.
+- **Un-retired for SERVICE duty 2026-09-11**: fossil hosts the FastAPI
+  service behind Tailscale Funnel (idle orchestrator wattage ~$1/mo beats
+  any VPS). Inference stays on OpenRouter; Ollama stays parked.
 
 ## 3. How it got here (rebuild changelog, 2026-09)
 
@@ -163,10 +164,12 @@ the plumbing and this documentation stay intact for model experiments.
 
 ## 5. Roadmap / open questions
 
-- **Hosting** (next): where the service runs, now that fossil is retired —
-  candidates: fossil anyway, small VPS/free tier, serverless (awkward:
-  OR-Tools + SSE). Decide before the frontend wiring; affects CORS and the
-  Funnel-vs-plain question.
+- **Hosting: DONE 2026-09-11 — fossil + Tailscale Funnel.** The service
+  (not the model) runs on fossil as `dogwalker.service`, public at
+  **https://fossil.taild72aca.ts.net** (Funnel → 127.0.0.1:8010).
+  Verified: unattended reboot to healthy public API in ~30 s. Ops runbook:
+  **FOSSIL.md**. Inference stays on OpenRouter. Frontend must call that
+  URL; CORS already pins walker.purr.io.
 - **Frontend**: Astro page on Cloudflare Pages at walker.purr.io (Route 53
   CNAME; custom-domain step happens in the Cloudflare dashboard), purr.io
   family style; renders the SSE trace live and the route from `final.plan` +

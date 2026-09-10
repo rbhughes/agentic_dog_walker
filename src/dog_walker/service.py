@@ -50,6 +50,7 @@ MAX_QUEUE_WAIT = 3           # runs allowed to wait behind the active one
 RUN_DEADLINE_S = 180         # OpenRouter finishes in ~30-60s; 3x margin
 ALLOWED_ORIGINS = [
     "https://walker.purr.io",
+    "https://agentic-dog-walker.pages.dev",  # Pages preview of the same site
     "http://localhost:4321",   # astro dev server
 ]
 
