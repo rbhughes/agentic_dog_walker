@@ -183,3 +183,70 @@ def test_build_request_renders_one_fact_per_sentence():
         {"name": "Rex", "address": "B St", "walk_minutes": 60}])
     assert "starting and ending at A St" in text
     assert "Rex is at B St and gets a 60 minute walk." in text
+
+
+# ---------------------------------------------------------------------
+# the qualifier's deterministic parts (discovery filter + gate logic)
+# ---------------------------------------------------------------------
+
+from dog_walker import qualify
+
+
+def catalog_entry(mid, prompt, completion, params=("tools", "reasoning")):
+    return {"id": mid, "name": mid, "pricing":
+            {"prompt": str(prompt), "completion": str(completion)},
+            "supported_parameters": list(params)}
+
+
+def test_discover_filters_by_price_and_capabilities():
+    catalog = [
+        catalog_entry("cheap/good", 0.05e-6, 0.2e-6),
+        catalog_entry("pricey/good", 5e-6, 20e-6),          # over cap
+        catalog_entry("cheap/no-tools", 0.05e-6, 0.2e-6, params=("reasoning",)),
+        catalog_entry("cheap/no-think", 0.05e-6, 0.2e-6, params=("tools",)),
+        catalog_entry("cheap/free:free", 0, 0),             # free alias
+        catalog_entry("qwen/qwen3-8b", 0.05e-6, 0.1e-6),    # pinned: skip
+    ]
+    ids = [c["id"] for c in qualify.discover(catalog)]
+    assert ids == ["cheap/good"]
+
+
+def test_discover_sorts_cheapest_first():
+    catalog = [
+        catalog_entry("b/mid", 0.10e-6, 0.4e-6),
+        catalog_entry("a/cheapest", 0.02e-6, 0.1e-6),
+    ]
+    ids = [c["id"] for c in qualify.discover(catalog)]
+    assert ids == ["a/cheapest", "b/mid"]
+
+
+def test_qualify_fails_a_routeless_finish(monkeypatch):
+    # the gemini-flash-lite exploit as the gate sees it
+    def fabricator(prompt, model=None):
+        yield {"event": "start", "model": model, "backend": "openrouter"}
+        yield {"event": "final", "plan": {"walks": [], "overall_advice": "x"}}
+
+    monkeypatch.setattr("dog_walker.agent.run_events", fabricator)
+    verdict = qualify.qualify("fake/model")
+    assert not verdict["passed"] and "route" in verdict["reason"]
+
+
+def test_qualify_passes_a_routed_finish(monkeypatch):
+    def honest(prompt, model=None):
+        yield {"event": "start", "model": model, "backend": "openrouter"}
+        yield {"event": "result", "name": "optimize_route",
+               "result": {"timeline": [], "order": []}}
+        yield {"event": "final", "plan": {"walks": [], "overall_advice": "x"}}
+
+    monkeypatch.setattr("dog_walker.agent.run_events", honest)
+    verdict = qualify.qualify("fake/model")
+    assert verdict["passed"]
+
+
+def test_discover_excludes_router_batch_and_negative_prices():
+    catalog = [
+        catalog_entry("openrouter/auto", -1, -1),
+        catalog_entry("x/model:batch", 0.05e-6, 0.2e-6),
+        catalog_entry("y/honest", 0.05e-6, 0.2e-6),
+    ]
+    assert [c["id"] for c in qualify.discover(catalog)] == ["y/honest"]

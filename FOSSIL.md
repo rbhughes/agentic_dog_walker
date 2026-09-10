@@ -99,9 +99,10 @@ systemctl status ollama
 Bound tailnet-only via systemd override
 (`systemctl edit ollama` → `OLLAMA_HOST=100.71.229.15`), so even on-box
 CLI needs the env var. Idle cost is ~zero (models load on demand and
-unload after `keep_alive`). To use it from the repo:
-`LOCAL_LLM=fossil uv run python -m dog_walker.agent`. Performance notes
-and the num_thread=10 rationale: CLAUDE.md → fossil section.
+unload after `keep_alive`). NOTE: the agent no longer speaks Ollama's
+native dialect (retired 2026-09-11) — if local inference ever returns,
+point the agent at Ollama's OpenAI-compatible endpoint
+(`http://100.71.229.15:11434/v1/chat/completions`) instead.
 
 ## Debian upkeep
 

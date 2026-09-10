@@ -41,22 +41,14 @@ except ImportError:
     pass
 
 # ---------------------------------------------------------------------
-# backends (LOCAL_LLM=fossil selects local; default is OpenRouter)
+# one backend, one dialect: OpenRouter's OpenAI-compatible API.
+# (The Ollama dialect was retired 2026-09-11 -- fossil serves the
+# service, not inference. If local inference ever returns, Ollama
+# speaks this same dialect at /v1/chat/completions.)
 # ---------------------------------------------------------------------
 
-BACKENDS = {
-    "fossil": {
-        "style": "ollama",
-        "url": "http://fossil:11434/api/chat",
-        "model": "qwen3:8b",
-    },
-    "openrouter": {
-        "style": "openai",
-        "url": "https://openrouter.ai/api/v1/chat/completions",
-        "model": "qwen/qwen3-8b",
-        "key_env": "OPENROUTER_API_KEY",
-    },
-}
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = "qwen/qwen3-8b"
 
 MAX_ROUNDS = 10
 
@@ -113,40 +105,30 @@ TOOLS = [schema for _fn, schema in REGISTRY.values()] + [SUBMIT_PLAN_SCHEMA]
 # ---------------------------------------------------------------------
 
 
-def chat(backend: dict, messages: list, think: bool = False) -> dict:
-    """One model round, normalized across the two wire dialects.
-    Returns {"role", "content", "tool_calls": [args as dicts], "_raw"}."""
-    if backend["style"] == "ollama":
-        body = {
-            "model": backend["model"],
-            "messages": messages,
-            "tools": TOOLS,
-            "stream": False,
-            "think": think,
-            "options": {"num_thread": 10, "temperature": 0},
-        }
-        headers = {"Content-Type": "application/json"}
-    else:
-        key = os.environ.get(backend["key_env"], "")
-        if not key:
-            raise RuntimeError(f"set {backend['key_env']} in env or .env")
-        body = {
-            "model": backend["model"],
-            "messages": messages,
-            "tools": TOOLS,
-            "temperature": 0,
-            "max_tokens": 2000 if think else 700,
-            "reasoning": {"enabled": think},
-        }
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {key}",
-        }
+def chat(model: str, messages: list, think: bool = False) -> dict:
+    """One model round. Returns the normalized message:
+    {"role", "content", "tool_calls": [arguments as dicts], "_raw"}.
+    _raw is the wire-format original -- always resend THAT."""
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not key:
+        raise RuntimeError("set OPENROUTER_API_KEY in env or .env")
+    body = {
+        "model": model,
+        "messages": messages,
+        "tools": TOOLS,
+        "temperature": 0,
+        "max_tokens": 2000 if think else 700,
+        "reasoning": {"enabled": think},
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {key}",
+    }
     # Armor: one model round gets 3 attempts with short backoff.
     # Retryable: network faults, timeouts, rate limits (429), and
     # server-side errors (5xx). Client errors (4xx) are OUR bug --
     # fail fast so they surface.
-    req = urllib.request.Request(backend["url"], json.dumps(body).encode(), headers)
+    req = urllib.request.Request(OPENROUTER_URL, json.dumps(body).encode(), headers)
     last_error: Exception | None = None
     for attempt in range(4):
         try:
@@ -159,7 +141,7 @@ def chat(backend: dict, messages: list, think: bool = False) -> dict:
                 # some models reject the reasoning block outright;
                 # drop it and retry once without
                 req = urllib.request.Request(
-                    backend["url"], json.dumps(body).encode(), headers
+                    OPENROUTER_URL, json.dumps(body).encode(), headers
                 )
                 last_error = e
             else:
@@ -170,22 +152,18 @@ def chat(backend: dict, messages: list, think: bool = False) -> dict:
     else:
         raise RuntimeError(f"model backend unreachable after 4 attempts: {last_error}")
 
-    if backend["style"] == "ollama":
-        raw = resp["message"]
-        norm = dict(raw)  # makes shallow copy
-    else:
-        raw = resp["choices"][0]["message"]
-        norm = dict(raw)
-        norm["tool_calls"] = [
-            {
-                "id": tc.get("id"),
-                "function": {
-                    "name": tc["function"]["name"],
-                    "arguments": json.loads(tc["function"]["arguments"]),
-                },
-            }
-            for tc in (raw.get("tool_calls") or [])
-        ]
+    raw = resp["choices"][0]["message"]
+    norm = dict(raw)  # shallow copy; passenger fields ride through
+    norm["tool_calls"] = [
+        {
+            "id": tc.get("id"),
+            "function": {
+                "name": tc["function"]["name"],
+                "arguments": json.loads(tc["function"]["arguments"]),
+            },
+        }
+        for tc in (raw.get("tool_calls") or [])
+    ]
     norm["_raw"] = raw
     return norm
 
@@ -199,12 +177,13 @@ def dispatch(name: str, arguments: dict) -> dict:
         return {"error": f"{type(e).__name__}: {e}"}
 
 
-def tool_feedback(backend: dict, call: dict, result: dict) -> dict:
-    """Package a result in the backend's dialect."""
-    msg = {"role": "tool", "content": json.dumps(result)}
-    if backend["style"] == "openai":
-        msg["tool_call_id"] = call["id"]
-    return msg
+def tool_feedback(call: dict, result: dict) -> dict:
+    """Package a result as the tool message answering one call."""
+    return {
+        "role": "tool",
+        "tool_call_id": call["id"],
+        "content": json.dumps(result),
+    }
 
 
 # ---------------------------------------------------------------------
@@ -390,18 +369,14 @@ def _plan_text(reply: dict) -> str:
     return ""
 
 
-def run_events(
-    request: str, backend_name: str | None = None, model: str | None = None
-):
+def run_events(request: str, model: str | None = None):
     """The agent: plan, act with validation, reflect via the auditor,
     finish through submit_plan. Yields events (vocabulary above).
-    `model` overrides the backend's default (the service validates it
-    against an allowlist before it gets here)."""
-    backend = dict(BACKENDS[backend_name or os.environ.get("LOCAL_LLM") or "openrouter"])
-    if model:
-        backend["model"] = model
+    `model` overrides DEFAULT_MODEL (the service validates it against
+    an allowlist before it gets here)."""
+    model = model or DEFAULT_MODEL
     today = datetime.now().astimezone()
-    yield {"event": "start", "model": backend["model"], "backend": backend["url"]}
+    yield {"event": "start", "model": model, "backend": "openrouter"}
 
     messages: list[dict] = [
         {
@@ -425,7 +400,7 @@ def run_events(
         # later think-off rounds see it. If it already proposes calls,
         # the act machinery below handles them -- planning and acting
         # are allowed to overlap.
-        plan_reply = chat(backend, messages, think=True)
+        plan_reply = chat(model, messages, think=True)
         messages.append(plan_reply["_raw"])
         if text := _plan_text(plan_reply):
             yield {"event": "plan", "text": text}
@@ -447,24 +422,24 @@ def run_events(
                 # the referee, BEFORE anything runs
                 if error := validate_call(name, arguments):
                     yield {"event": "bounce", "name": name, "error": error}
-                    messages.append(tool_feedback(backend, call, {"error": error}))
+                    messages.append(tool_feedback(call, {"error": error}))
                     continue
 
                 if name == "submit_plan":
                     # ---- REFLECT: the deterministic auditor gets a veto
                     if gap := audit_weather_coverage(messages):
                         yield {"event": "audit_veto", "gap": gap}
-                        messages.append(tool_feedback(backend, call, {"error": gap}))
+                        messages.append(tool_feedback(call, {"error": gap}))
                         continue
                     yield {"event": "final", "plan": arguments}
                     return
 
                 result = dispatch(name, arguments)
                 yield {"event": "result", "name": name, "result": result}
-                messages.append(tool_feedback(backend, call, result))
+                messages.append(tool_feedback(call, result))
 
             # ---- next model round (think off: plan is already in state)
-            reply = chat(backend, messages, think=False)
+            reply = chat(model, messages, think=False)
             messages.append(reply["_raw"])
             pending = reply.get("tool_calls") or []
 
@@ -495,16 +470,15 @@ def run_events(
         yield {"event": "error", "message": f"{type(e).__name__}: {e}"}
 
 
-def run(request: str, backend_name: str | None = None, verbose: bool = True) -> dict:
+def run(request: str, model: str | None = None, verbose: bool = True) -> dict:
     """CLI-flavoured consumer of run_events(): prints a human trace,
-    returns the validated plan, raises on a terminal error. Same
-    signature and contract as before the event refactor."""
+    returns the validated plan, raises on a terminal error."""
 
     def trace(text: str) -> None:
         if verbose:
             print(text)
 
-    for ev in run_events(request, backend_name):
+    for ev in run_events(request, model):
         kind = ev["event"]
         if kind == "plan":
             trace(f"[plan] {_brief(ev['text'], 200)}")

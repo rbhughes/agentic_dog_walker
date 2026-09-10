@@ -13,8 +13,10 @@ uv run uvicorn dog_walker.service:app --port 8010
 
 Secrets: `OPENROUTER_API_KEY` in the environment or `.env`. Optional
 `OPENROUTESERVICE_API_KEY` for real street routing (haversine
-fallback without it, honestly flagged). `LOCAL_LLM=fossil` switches
-the model backend to the local Ollama box, if it's awake.
+fallback without it, honestly flagged). All inference goes through
+OpenRouter; the picker allowlist comes from `models.json`, generated
+by the qualifier (`python -m dog_walker.qualify` — catalog criteria
+plus a live end-to-end gate; see its docstring).
 
 ## Endpoints
 
