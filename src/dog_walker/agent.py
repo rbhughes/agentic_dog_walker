@@ -148,7 +148,7 @@ def chat(backend: dict, messages: list, think: bool = False) -> dict:
     # fail fast so they surface.
     req = urllib.request.Request(backend["url"], json.dumps(body).encode(), headers)
     last_error: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(4):
         try:
             resp = json.load(urllib.request.urlopen(req, timeout=180))
             break
@@ -166,9 +166,9 @@ def chat(backend: dict, messages: list, think: bool = False) -> dict:
                 raise
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             last_error = e
-        time.sleep(2**attempt)  # 1s, 2s before attempts 2 and 3
+        time.sleep(2**attempt)  # 1s, 2s, 4s between attempts
     else:
-        raise RuntimeError(f"model backend unreachable after 3 attempts: {last_error}")
+        raise RuntimeError(f"model backend unreachable after 4 attempts: {last_error}")
 
     if backend["style"] == "ollama":
         raw = resp["message"]
@@ -295,7 +295,15 @@ def audit_weather_coverage(messages: list) -> str | None:
             timeline = payload["timeline"]
 
     if route_call is None or timeline is None:
-        return None  # nothing to audit yet
+        # A model that never routes could otherwise submit FABRICATED
+        # times and verdicts (observed live: gemini-2.5-flash-lite
+        # geocoded, then invented walk times and OK verdicts wholesale).
+        # No timeline, no acceptance.
+        return (
+            "REJECTED: no route exists. Call optimize_route with the "
+            "stops and start_time, then check_weather for each dog's "
+            "walk interval, then submit again."
+        )
 
     # stop name -> coordinates, from the route call's own arguments
     coords = {s["name"]: (s["lat"], s["lon"]) for s in route_call["stops"]}
@@ -305,7 +313,13 @@ def audit_weather_coverage(messages: list) -> str | None:
             continue  # the start stop / return home
         start, end = entry.get("walk_start"), entry.get("walk_end")
         if not (isinstance(start, str) and ":" in start):
-            return None  # minutes-from-start timeline: hours unknowable
+            # minutes-from-start timeline: intervals unauditable, and
+            # unauditable must not mean unaudited
+            return (
+                "REJECTED: the route timeline has no clock times. Call "
+                "optimize_route again INCLUDING start_time, re-check "
+                "weather for each dog's interval, then submit again."
+            )
         lat, lon = coords.get(entry["stop"], (None, None))
         if lat is None:
             continue

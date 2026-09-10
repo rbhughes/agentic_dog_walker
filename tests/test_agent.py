@@ -107,9 +107,12 @@ def weather_call(lat: float, lon: float, start: int, end: int) -> dict:
     })
 
 
-def test_no_timeline_yet_means_nothing_to_audit():
+def test_submitting_without_a_route_is_rejected():
+    # the gemini-2.5-flash-lite exploit: geocode, then submit invented
+    # times and verdicts with no route and no weather check
     messages = [weather_call(*ZOO, 13, 14)]
-    assert audit_weather_coverage(messages) is None
+    gap = audit_weather_coverage(messages)
+    assert "no route" in gap and "optimize_route" in gap
 
 
 def test_uncovered_walk_is_reported_by_name_and_interval():
@@ -146,8 +149,8 @@ def test_openai_dialect_string_arguments_are_understood():
     assert "Daisy" in audit_weather_coverage([call, result])
 
 
-def test_minutes_timeline_is_not_auditable():
-    # no start_time -> timeline in minutes-from-start; hours unknowable
+def test_minutes_timeline_is_rejected_not_waved_through():
+    # no start_time -> intervals unauditable; unauditable != unaudited
     call = assistant_call("optimize_route", {"stops": [
         {"name": "home", "lat": 41.948, "lon": -87.655},
         {"name": "Daisy", "lat": ZOO[0], "lon": ZOO[1], "walk_minutes": 20},
@@ -156,4 +159,4 @@ def test_minutes_timeline_is_not_auditable():
         {"stop": "Daisy", "arrive": 10, "walk_start": 10,
          "walk_end": 30, "walk_minutes": 20},
     ]})
-    assert audit_weather_coverage([call, result]) is None
+    assert "start_time" in audit_weather_coverage([call, result])

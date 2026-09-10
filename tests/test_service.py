@@ -48,7 +48,15 @@ GOOD_PLAN = {
 }
 
 
+def _audit_satisfied(messages):
+    """Stand-in auditor: these tests pin the stream SHAPE; audit
+    policy (route required, coverage) has its own tests in
+    test_agent.py."""
+    return None
+
+
 def test_stream_ends_with_final_on_the_happy_path(monkeypatch):
+    monkeypatch.setattr(agent, "audit_weather_coverage", _audit_satisfied)
     monkeypatch.setattr(agent, "chat", scripted_chat([
         {"reasoning": "the plan: just submit"},        # plan round
         {"tool_calls": [call("submit_plan", GOOD_PLAN)]},
@@ -72,6 +80,7 @@ def test_plan_event_reads_reasoning_not_just_content(monkeypatch):
 
 def test_invalid_call_becomes_bounce_event_then_recovers(monkeypatch):
     bad = {"walks": [], "overall_advice": 42}          # advice: wrong type
+    monkeypatch.setattr(agent, "audit_weather_coverage", _audit_satisfied)
     monkeypatch.setattr(agent, "chat", scripted_chat([
         {},                                            # plan: nothing
         {"tool_calls": [call("submit_plan", bad)]},
