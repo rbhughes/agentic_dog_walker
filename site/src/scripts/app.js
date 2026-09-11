@@ -376,7 +376,7 @@ function renderResult(plan) {
     const n = seq[w.pet];
     card.innerHTML = `
       <h3>${n ? `<span class="mk mk-inline" style="background:${
-        VERDICT_COLORS[w.verdict] || "#256abf"}">${n}</span> ` : ""}${escapeHtml(w.pet)}</h3>
+        VERDICT_COLORS[w.verdict] || "#4a6fa5"}">${n}</span> ` : ""}${escapeHtml(w.pet)}</h3>
       <p><span class="v v-${w.verdict}">${w.verdict.replaceAll("_", " ")}</span>
          &nbsp;${escapeHtml(w.walk_start)}–${escapeHtml(w.walk_end)}</p>
       ${w.notes ? `<p class="small">${escapeHtml(w.notes)}</p>` : ""}`;
@@ -445,7 +445,7 @@ function drawMap(plan, seq) {
         id: "route",
         type: "line",
         source: "route",
-        paint: { "line-color": "#256abf", "line-width": 4, "line-opacity": 0.8 },
+        paint: { "line-color": "#4a6fa5", "line-width": 4, "line-opacity": 0.8 },
       });
     } else if (routeResult) {
       // haversine fallback: straight lines between stops, honestly dashed
@@ -461,7 +461,7 @@ function drawMap(plan, seq) {
         id: "route",
         type: "line",
         source: "route",
-        paint: { "line-color": "#256abf", "line-width": 3,
+        paint: { "line-color": "#4a6fa5", "line-width": 3,
                  "line-dasharray": [2, 2], "line-opacity": 0.7 },
       });
     }
@@ -475,8 +475,8 @@ function drawMap(plan, seq) {
       dot.className = "mk";
       dot.textContent = n ? String(n) : "S";
       dot.style.background = n
-        ? VERDICT_COLORS[verdictByPet[s.name]] || "#256abf"
-        : "#d95f00";
+        ? VERDICT_COLORS[verdictByPet[s.name]] || "#4a6fa5"
+        : "#cc6137";
       new maplibregl.Marker({ element: dot })
         .setLngLat([s.lon, s.lat])
         .setPopup(new maplibregl.Popup({ offset: 18 }).setText(s.name))

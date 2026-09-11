@@ -16,6 +16,8 @@
       name="description"
       content="Watch a small language model plan dog walks: geocoding, route optimization, per-dog weather verdicts — every tool call streamed live. A modern LLM tool-use demonstration."
     />
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet" />
   </head>
   <body>
     <nav class="topnav">
@@ -158,15 +160,16 @@
 
 <style is:global>
   :root {
-    --page: #eff1f6;
-    --surface: #fcfcfb;
-    --ink: #0b0b0b;
-    --ink-2: #52514e;
-    --muted: #898781;
-    --hairline: #dcdee8;
-    --border: rgba(11, 11, 11, 0.1);
-    --accent: #256abf;
-    --brand: #d95f00;
+    --page: #f3f4f6;
+    --surface: #ffffff;
+    --ink: #262e42;
+    --ink-2: #5b6577;
+    --muted: #9aa0ab;
+    --hairline: #dfe1e6;
+    --border: rgba(38, 46, 66, 0.12);
+    --accent: #4a6fa5;
+    --brand: #cc6137;
+    --gold: #eeb63f;
     --ok: #2f7d33;
     --caution: #b26a00;
     --shorten: #d7301f;
@@ -177,7 +180,7 @@
     margin: 0;
     background: var(--page);
     color: var(--ink);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 15px/1.6 Poppins, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   a { color: var(--accent); }
   .topnav {
@@ -213,7 +216,7 @@
   .card h3 { margin: 0 0 0.25rem; font-size: 1.02rem; }
   .card p { margin: 0.2rem 0 0.6rem; color: var(--ink-2); font-size: 0.9rem; }
   .card button, .primary {
-    background: var(--brand); color: #fff; border: 0; border-radius: 8px;
+    background: var(--gold); color: var(--ink); border: 0; border-radius: 8px;
     padding: 0.45rem 0.9rem; font-weight: 700; cursor: pointer;
   }
   button:disabled { opacity: 0.5; cursor: default; }
