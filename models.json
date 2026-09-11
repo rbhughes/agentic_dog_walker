@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-11T07:45:17.517003-05:00",
+  "generated_at": "2026-09-11T08:12:54.764172-05:00",
   "criteria": {
     "prompt_cap_per_m": 0.3,
     "completion_cap_per_m": 1.2,
@@ -20,25 +20,20 @@
     },
     {
       "id": "inclusionai/ling-3.0-flash",
-      "label": "inclusionAI: Ling 3.0 Flash \u2014 $0.02/M in, qualified 30s"
+      "label": "inclusionAI: Ling 3.0 Flash \u2014 $0.02/M in, qualified 18s"
     },
     {
       "id": "qwen/qwen3.7-flash",
-      "label": "Qwen: Qwen3.7 Flash \u2014 $0.03/M in, qualified 39s"
+      "label": "Qwen: Qwen3.7 Flash \u2014 $0.03/M in, qualified 27s"
+    },
+    {
+      "id": "openai/gpt-oss-20b",
+      "label": "OpenAI: gpt-oss-20b \u2014 $0.03/M in, qualified 118s"
     },
     {
       "id": "openai/gpt-oss-120b",
-      "label": "OpenAI: gpt-oss-120b \u2014 $0.04/M in, qualified 57s"
-    },
-    {
-      "id": "inception/mercury-2.5",
-      "label": "Inception: Mercury 2.5 \u2014 $0.04/M in, qualified 8s"
+      "label": "OpenAI: gpt-oss-120b \u2014 $0.04/M in, qualified 42s"
     }
   ],
-  "rejected": [
-    {
-      "id": "openai/gpt-oss-20b",
-      "reason": "deadline 120s"
-    }
-  ]
+  "rejected": []
 }
