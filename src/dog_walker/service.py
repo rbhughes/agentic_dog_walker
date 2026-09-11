@@ -99,8 +99,16 @@ class Pet(BaseModel):
     address: str = Field(min_length=4, max_length=MAX_FIELD_CHARS)
     walk_minutes: WalkMinutes
     buffer_minutes: int = Field(default=0, ge=0, le=60)
-    cold_tolerance: int = Field(default=0, ge=-3, le=3)
-    heat_tolerance: int = Field(default=0, ge=-3, le=3)
+    comfort_min_f: int = Field(default=20, ge=-20, le=110)
+    comfort_max_f: int = Field(default=84, ge=-20, le=110)
+
+    @model_validator(mode="after")
+    def band_is_sane(self):
+        if self.comfort_max_f - self.comfort_min_f < 10:
+            raise ValueError(
+                "comfort band must span at least 10F (min < max)"
+            )
+        return self
 
 
 class PlanRequest(BaseModel):

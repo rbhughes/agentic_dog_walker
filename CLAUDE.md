@@ -202,14 +202,19 @@ the plumbing and this documentation stay intact for model experiments.
   spent BEFORE the walk — delays walk_start, lengthens the schedule, does
   not extend the dog's outdoor interval. Flows Pet → build_request →
   optimize_route stops → timeline (`buffer_minutes` on the entry).
-- **Dog hardiness: DONE 2026-09-11.** Per-dog `cold_tolerance` /
-  `heat_tolerance` (-3..+3), TOLERANCE_STEP_F = 5: each point shifts that
-  dog's verdict ladders (and the wet-cold trigger) 5F. Judgment stays in
-  the tool. Tolerances echo through optimize_route stops into the
-  timeline, and the AUDITOR requires each dog's weather check to carry
-  that dog's exact tolerances — a delicate dog judged by a default-ladder
-  check is "not covered". Verified live: same 76F afternoon, husky
-  (heat -3) SHORTEN while default and heat-tolerant dogs get OK.
+- **Dog hardiness: COMFORT BANDS (2026-09-12, superseding the two-score
+  tolerances).** Per-dog `comfort_min_f`/`comfort_max_f` — the dog's
+  comfortable feels-like range, a dual-thumb slider on a blue→red
+  gradient in the UI (default [20, 84], bounds [-20, 110], ≥10F wide;
+  the tool forgives inverted/narrow bands, the front door 422s them).
+  Verdict = distance beyond either edge, one rung per BEYOND_STEP_F=10F
+  (this replaced the separate cold/heat ladders entirely; wind/precip
+  ladders and the ABSOLUTE wet-cold trigger remain). Band position =
+  husky-vs-iggy axis, band width = hardy-vs-bulldog axis — expresses the
+  narrow-band bulldog the single-axis design couldn't. Bands echo through
+  the timeline and the auditor requires each dog's weather check to carry
+  that dog's band. Preset exemplars: Daisy [45,95], Wilbur [-10,70].
+  Verified live: same ~75F afternoon, Wilbur CAUTION while others OK.
 - **Model picker (DONE 2026-09-11)**: service MODELS allowlist (cost
   armor — browser picks from the list, never names arbitrary models),
   optional `model` on /plan threaded through run_events, /info returns the

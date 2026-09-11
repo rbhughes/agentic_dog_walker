@@ -129,41 +129,46 @@ function petRow() {
       <input name="pet_buffer" type="number" min="0" max="60" step="5"
         value="0" size="3" title="extra minutes: elevators, feeding, parking" />
     </label>
-    <label>Cold tol.
-      <select name="pet_cold" title="-3 delicate ... +3 husky">
-        ${toleranceOptions()}
-      </select>
-    </label>
-    <label>Heat tol.
-      <select name="pet_heat" title="-3 overheats ... +3 heat-proof">
-        ${tolerancesHeat()}
-      </select>
+    <label class="bandlabel">Comfort band
+      <span class="band" title="this dog's comfortable feels-like range, °F">
+        <input name="pet_band_min" type="range" min="-20" max="110"
+          step="5" value="20" />
+        <input name="pet_band_max" type="range" min="-20" max="110"
+          step="5" value="84" />
+      </span>
+      <span class="bandvals">20°F – 84°F</span>
     </label>
     <button type="button" title="remove">&times;</button>`;
+  wireBand(row);
   row.querySelector("button").addEventListener("click", removePet);
   return row;
 }
 
-function tolerangeRange() {
-  return [-3, -2, -1, 0, 1, 2, 3];
-}
+function wireBand(row) {
+  const inputs = row.querySelectorAll(".band input");
+  const vals = row.querySelector(".bandvals");
 
-function tolerancesOptionsHtml() {
-  return tolerangeRange()
-    .map(function render(v) {
-      const sel = v === 0 ? " selected" : "";
-      const label = v > 0 ? `+${v}` : String(v);
-      return `<option value="${v}"${sel}>${label}</option>`;
-    })
-    .join("");
-}
-
-function toleranceOptions() {
-  return tolerancesOptionsHtml();
-}
-
-function tolerancesHeat() {
-  return tolerancesOptionsHtml();
+  function sync() {
+    let lo = parseInt(inputs[0].value, 10);
+    let hi = parseInt(inputs[1].value, 10);
+    // thumbs may cross; the BAND is always [min, max] of the pair,
+    // kept at least 10F wide by nudging the moved thumb's partner
+    if (hi - lo < 10) {
+      if (document.activeElement === inputs[0]) {
+        lo = Math.min(lo, 100);
+        inputs[1].value = hi = lo + 10;
+      } else {
+        hi = Math.max(hi, -10);
+        inputs[0].value = lo = hi - 10;
+      }
+    }
+    vals.textContent = `${lo}°F – ${hi}°F`;
+  }
+  inputs.forEach(addSyncListener);
+  function addSyncListener(inp) {
+    inp.addEventListener("input", sync);
+  }
+  sync();
 }
 
 function removePet(e) {
@@ -187,16 +192,18 @@ function submitCustom(e) {
   const addresses = data.getAll("pet_address");
   const minutes = data.getAll("pet_minutes");
   const buffers = data.getAll("pet_buffer");
-  const colds = data.getAll("pet_cold");
-  const heats = data.getAll("pet_heat");
+  const bandMins = data.getAll("pet_band_min");
+  const bandMaxs = data.getAll("pet_band_max");
   for (let i = 0; i < names.length; i++) {
+    const a = parseInt(bandMins[i] || "20", 10);
+    const b = parseInt(bandMaxs[i] || "84", 10);
     pets.push({
       name: names[i],
       address: addresses[i],
       walk_minutes: parseInt(minutes[i], 10),
       buffer_minutes: parseInt(buffers[i] || "0", 10),
-      cold_tolerance: parseInt(colds[i] || "0", 10),
-      heat_tolerance: parseInt(heats[i] || "0", 10),
+      comfort_min_f: Math.min(a, b),
+      comfort_max_f: Math.max(a, b),
     });
   }
   runPlan({

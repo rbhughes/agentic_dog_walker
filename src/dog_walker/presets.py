@@ -29,8 +29,8 @@ PRESETS: dict[str, dict] = {
                 "address": "Lincoln Park Zoo, Chicago",
                 "walk_minutes": 20,
                 # Italian Greyhound: shivers in fall, thrives in heat
-                "cold_tolerance": -3,
-                "heat_tolerance": 3,
+                "comfort_min_f": 45,
+                "comfort_max_f": 95,
             },
             {
                 "name": "Rex",
@@ -44,8 +44,8 @@ PRESETS: dict[str, dict] = {
                 "address": "4802 N Broadway, Chicago",
                 "walk_minutes": 30,
                 # husky mix: built for January, suffers in July
-                "cold_tolerance": 3,
-                "heat_tolerance": -3,
+                "comfort_min_f": -10,
+                "comfort_max_f": 70,
             },
         ],
     },
@@ -144,10 +144,11 @@ def build_request(start_address: str, start_time: str, pets: list[dict]) -> str:
                 f"{pet['name']} needs {pet['buffer_minutes']} minutes of "
                 f"prep time before the walk (buffer_minutes)."
             )
-        if pet.get("cold_tolerance") or pet.get("heat_tolerance"):
+        if "comfort_min_f" in pet or "comfort_max_f" in pet:
             lines.append(
-                f"{pet['name']} has cold_tolerance "
-                f"{pet.get('cold_tolerance', 0)} and heat_tolerance "
-                f"{pet.get('heat_tolerance', 0)}."
+                f"{pet['name']}'s comfortable temperature band is "
+                f"{pet.get('comfort_min_f', 20)} to "
+                f"{pet.get('comfort_max_f', 84)} F "
+                f"(pass as comfort_min_f/comfort_max_f)."
             )
     return " ".join(lines)

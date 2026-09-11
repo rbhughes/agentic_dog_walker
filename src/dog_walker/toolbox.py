@@ -34,16 +34,17 @@ VERDICTS = ("OK", "CAUTION", "SHORTEN", "DO_NOT_WALK")
 # 20/10/-5 and heat CAUTION raised to 84F (68F fired on pleasant
 # days). Changing any rung is a POLICY change and will trip tests --
 # that friction is intentional.
-COLD_LADDER = [
-    (20, "CAUTION"),
-    (10, "SHORTEN"),
-    (-5, "DO_NOT_WALK"),
-]
-HEAT_LADDER = [
-    (84, "CAUTION"),
-    (88, "SHORTEN"),
-    (95, "DO_NOT_WALK"),
-]
+# Per-dog comfort band, in F on feels-like. The band's POSITION is
+# the husky-vs-iggy axis; its WIDTH is the hardy-vs-bulldog axis
+# (a two-thumb slider in the UI). Inside the band: OK. Beyond either
+# edge, severity climbs one rung per BEYOND_STEP_F degrees. The
+# default band edges reproduce the old global CAUTION rungs.
+DEFAULT_COMFORT_MIN_F = 20
+DEFAULT_COMFORT_MAX_F = 84
+COMFORT_BOUNDS_F = (-20, 110)   # slider limits
+MIN_BAND_WIDTH_F = 10
+BEYOND_STEP_F = 10              # each 10F beyond the band = one rung worse
+
 WIND_LADDER = [
     (35, "CAUTION"),
     (40, "SHORTEN"),
@@ -56,26 +57,20 @@ PRECIP_LADDER = [
 ]
 
 
-# Per-dog tolerance: each point shifts that dog's verdict thresholds
-# by this many degrees F. cold_tolerance +3 (husky) moves the cold
-# rungs 15F colder before they trigger; heat_tolerance +3 (Italian
-# Greyhound in summer) moves the heat rungs 15F hotter. Range -3..+3.
-# Judgment stays deterministic and in the tool -- the model passes
-# scores, never invents verdicts.
-TOLERANCE_STEP_F = 5
-
-
-def _shift_ladder(ladder: list, degrees: float) -> list:
-    """A copy of the ladder with every rung moved by `degrees`."""
-    return [(threshold + degrees, verdict) for threshold, verdict in ladder]
+def _band_verdict(distance_beyond: float) -> str:
+    """Severity from how far outside the comfort band the feels-like
+    went: one rung per BEYOND_STEP_F degrees, clamped at the top."""
+    if distance_beyond <= 0:
+        return "OK"
+    rung = 1 + int(distance_beyond // BEYOND_STEP_F)
+    return VERDICTS[min(rung, len(VERDICTS) - 1)]
 
 
 def _wet_cold(window: dict) -> bool:
     """Rain near freezing: a soaked coat loses its insulation, so the
-    combination is worse than either number alone suggests. The
-    trigger shifts with the dog's cold tolerance like the ladders."""
-    threshold = 35.6 - TOLERANCE_STEP_F * window.get("cold_tolerance", 0)
-    return window["max_precip_mm"] > 0.5 and window["min_feels_like_f"] <= threshold
+    combination is worse than either number alone suggests. Absolute
+    (physics of wet fur near frost), not band-relative."""
+    return window["max_precip_mm"] > 0.5 and window["min_feels_like_f"] <= 35.6
 
 
 # Combo escalations: (name, predicate over the window summary, reason).
@@ -142,8 +137,8 @@ def assess_walk_safety(
     hours: dict[str, list],
     start_hour: int,
     end_hour: int,
-    cold_tolerance: int = 0,
-    heat_tolerance: int = 0,
+    comfort_min_f: float = DEFAULT_COMFORT_MIN_F,
+    comfort_max_f: float = DEFAULT_COMFORT_MAX_F,
 ) -> dict:
     """The judgment seat of the whole system. Deterministic, offline,
     unit-testable: no model, no network.
@@ -182,28 +177,43 @@ def assess_walk_safety(
         "max_precip_mm": pick("precip_mm", max),
     }
 
-    # tolerance shifts: a cold-tolerant dog's cold rungs move colder
-    # (subtract), a heat-tolerant dog's heat rungs move hotter (add)
-    cold_ladder = _shift_ladder(COLD_LADDER, -TOLERANCE_STEP_F * cold_tolerance)
-    heat_ladder = _shift_ladder(HEAT_LADDER, TOLERANCE_STEP_F * heat_tolerance)
-    if cold_tolerance:
-        window["cold_tolerance"] = cold_tolerance
-    if heat_tolerance:
-        window["heat_tolerance"] = heat_tolerance
+    # forgive degenerate bands (front-door validation is stricter):
+    # inverted -> swap; too narrow -> widen to the minimum
+    lo, hi = float(comfort_min_f), float(comfort_max_f)
+    if hi < lo:
+        lo, hi = hi, lo
+    if hi - lo < MIN_BAND_WIDTH_F:
+        mid = (lo + hi) / 2
+        lo, hi = mid - MIN_BAND_WIDTH_F / 2, mid + MIN_BAND_WIDTH_F / 2
+    window["comfort_min_f"] = lo
+    window["comfort_max_f"] = hi
 
     verdict, reasons = "OK", []
-    # (value, ladder, colder_is_worse, label) -- heat uses feels-like
-    # too: apparent_temperature folds in humidity, which is the part
-    # of heat that kills dogs
+    # the comfort band: one rung per BEYOND_STEP_F degrees outside it.
+    # Heat and cold both judge feels-like (apparent temperature folds
+    # in humidity, the part of heat that kills dogs).
+    cold_beyond = lo - window["min_feels_like_f"]
+    if (cold_v := _band_verdict(cold_beyond)) != "OK":
+        reasons.append(
+            f"feels-like {window['min_feels_like_f']:g} is "
+            f"{cold_beyond:g}F below comfort minimum {lo:g}"
+        )
+        verdict = cold_v
+    heat_beyond = window["max_feels_like_f"] - hi
+    if (heat_v := _band_verdict(heat_beyond)) != "OK":
+        reasons.append(
+            f"feels-like {window['max_feels_like_f']:g} is "
+            f"{heat_beyond:g}F above comfort maximum {hi:g}"
+        )
+        if VERDICTS.index(heat_v) > VERDICTS.index(verdict):
+            verdict = heat_v
+
     ladder_checks = [
-        (window["min_feels_like_f"], cold_ladder, True, "feels-like low"),
-        (window["max_feels_like_f"], heat_ladder, False, "feels-like high"),
         (window["max_wind_kph"], WIND_LADDER, False, "wind"),
         (window["max_precip_mm"], PRECIP_LADDER, False, "precipitation"),
     ]
     for value, ladder, colder, label in ladder_checks:
         if hit := _walk_ladder(value, ladder, colder):
-            # print(f"  hit is currently {hit}")
             threshold, rung = hit
             reasons.append(f"{label} {value:g} crosses {rung} threshold {threshold:g}")
             if VERDICTS.index(rung) > VERDICTS.index(verdict):
@@ -228,8 +238,8 @@ def check_weather(
     date: str,
     start_hour: int = 8,
     end_hour: int = 20,
-    cold_tolerance: int = 0,
-    heat_tolerance: int = 0,
+    comfort_min_f: float = DEFAULT_COMFORT_MIN_F,
+    comfort_max_f: float = DEFAULT_COMFORT_MAX_F,
 ) -> dict[str, Any]:
     """The tool the agent (and MCP facade) exposes: fetch + assess.
 
@@ -245,7 +255,7 @@ def check_weather(
         end_hour = min(start_hour + 1, 24)
     hours = fetch_forecast(lat, lon, date)
     return assess_walk_safety(
-        hours, start_hour, end_hour, cold_tolerance, heat_tolerance
+        hours, start_hour, end_hour, comfort_min_f, comfort_max_f
     )
 
 
@@ -279,18 +289,20 @@ CHECK_WEATHER_SCHEMA = {
                         "walk 13:29-13:59 is start_hour 13, end_hour 14"
                     ),
                 },
-                "cold_tolerance": {
-                    "type": "integer", "minimum": -3, "maximum": 3,
+                "comfort_min_f": {
+                    "type": "number", "minimum": -20, "maximum": 110,
                     "description": (
-                        "this dog's cold tolerance, -3 (delicate) to +3 "
-                        "(husky); shifts cold thresholds 5F per point"
+                        "this dog's comfort-band minimum, F feels-like "
+                        "(default 20); severity climbs one rung per 10F "
+                        "below it"
                     ),
                 },
-                "heat_tolerance": {
-                    "type": "integer", "minimum": -3, "maximum": 3,
+                "comfort_max_f": {
+                    "type": "number", "minimum": -20, "maximum": 110,
                     "description": (
-                        "this dog's heat tolerance, -3 to +3; shifts heat "
-                        "thresholds 5F per point"
+                        "this dog's comfort-band maximum, F feels-like "
+                        "(default 84); severity climbs one rung per 10F "
+                        "above it"
                     ),
                 },
             },
@@ -520,9 +532,9 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
     Each stop: {"name", "lat", "lon", "walk_minutes", and optionally
     "buffer_minutes" (prep time -- elevators, feeding, parking --
     spent BEFORE the walk: it delays walk_start and lengthens the
-    schedule but not the dog's time outside) and "cold_tolerance"/
-    "heat_tolerance" (-3..+3, echoed into the timeline so weather
-    checks can be audited against them)}. walk_minutes is that dog's
+    schedule but not the dog's time outside) and "comfort_min_f"/
+    "comfort_max_f" (the dog's comfort band, echoed into the
+    timeline so weather checks can be audited against them)}. walk_minutes is that dog's
     own walk (20/30/60), taken as a loop from its home -- the walker arrives, walks the dog out and
     back, returns it, and transits to the next stop. Stop 0 is the
     walker's start/end and takes no walk_minutes.
@@ -583,9 +595,9 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
         }
         if buffer:
             entry["buffer_minutes"] = buffer
-        for key in ("cold_tolerance", "heat_tolerance"):
-            if stops[b].get(key):
-                entry[key] = int(stops[b][key])
+        for key in ("comfort_min_f", "comfort_max_f"):
+            if stops[b].get(key) is not None:
+                entry[key] = float(stops[b][key])
         timeline.append(entry)
         t += buffer + walk
 
@@ -645,13 +657,13 @@ OPTIMIZE_ROUTE_SCHEMA = {
                                     "(elevators, feeding, parking)"
                                 ),
                             },
-                            "cold_tolerance": {
-                                "type": "integer", "minimum": -3, "maximum": 3,
-                                "description": "this dog's cold tolerance",
+                            "comfort_min_f": {
+                                "type": "number", "minimum": -20, "maximum": 110,
+                                "description": "comfort-band minimum, F",
                             },
-                            "heat_tolerance": {
-                                "type": "integer", "minimum": -3, "maximum": 3,
-                                "description": "this dog's heat tolerance",
+                            "comfort_max_f": {
+                                "type": "number", "minimum": -20, "maximum": 110,
+                                "description": "comfort-band maximum, F",
                             },
                         },
                         "required": ["name", "lat", "lon"],

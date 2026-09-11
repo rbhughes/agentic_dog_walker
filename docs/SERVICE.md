@@ -37,8 +37,8 @@ Body is **either** a preset **or** a custom roster, never both:
  "pets": [{"name": "Rex", "address": "5218 N Clark St, Chicago",
            "walk_minutes": 60,
            "buffer_minutes": 10,      // optional, 0-60: pre-walk prep
-           "cold_tolerance": 0,       // optional, -3..+3 (husky = +3)
-           "heat_tolerance": 0}]}     // optional, -3..+3
+           "comfort_min_f": 20,       // optional: comfort band, F
+           "comfort_max_f": 84}]}     // (>=10F wide, within -20..110)
 ```
 
 The response is a server-sent-event stream (`text/event-stream`),
@@ -89,7 +89,7 @@ Each layer states what it defends against and its honest limits.
 
 **1. Structured input only.** Pydantic models reject anything but the
 schema: ≤ 6 pets, name ≤ 40 chars, address 4–120 chars, walk minutes
-∈ {20, 30, 60}, buffer 0–60, tolerances −3..+3, time `HH:MM`,
+∈ {20, 30, 60}, buffer 0–60, comfort band within −20..110 and ≥10F wide, time `HH:MM`,
 preset XOR custom. Free-form text from
 the network never reaches the model — the prompt is rendered by
 `presets.build_request()` from validated fields, one dull sentence

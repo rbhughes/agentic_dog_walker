@@ -114,18 +114,20 @@ def test_mild_day_is_ok_with_no_reasons():
 
 
 def test_extreme_cold_forbids_the_walk():
-    # the fixture blizzard: feels-like -27F (below the -4F rung)
+    # the fixture blizzard: feels-like -27F, 47F below the default
+    # comfort minimum
     result = assess_walk_safety(day(feels_like_f=[-27.0] * 24), 8, 20)
     assert result["verdict"] == "DO_NOT_WALK"
-    assert any("feels-like low" in r for r in result["reasons"])
+    assert any("below comfort minimum" in r for r in result["reasons"])
 
 
 def test_heat_keys_on_feels_like_not_air_temp():
-    # humid 90F feels like 97: air temp alone would miss DO_NOT_WALK
+    # humid 90F feels like 97: 13F above the default band maximum ->
+    # SHORTEN (air temp alone, 6F above, would only say CAUTION)
     result = assess_walk_safety(
         day(temp_f=[90.0] * 24, feels_like_f=[97.0] * 24), 8, 20
     )
-    assert result["verdict"] == "DO_NOT_WALK"
+    assert result["verdict"] == "SHORTEN"
 
 
 def test_strictest_ladder_wins_and_all_reasons_report():
@@ -383,34 +385,55 @@ def test_route_rejects_too_few_or_too_many_stops():
 # ---------------------------------------------------------------------
 
 
-def test_husky_shrugs_off_what_triggers_the_default():
-    # 18F: CAUTION for a default dog (rung 20), fine for +3 cold
-    # tolerance (rung shifts to 5)
+def test_inside_the_band_is_ok_outside_escalates_by_distance():
+    # default band [20, 84]; one rung per 10F beyond an edge
+    assert assess_walk_safety(day(feels_like_f=[18.0] * 24), 8, 20)[
+        "verdict"] == "CAUTION"        # 2F below
+    assert assess_walk_safety(day(feels_like_f=[8.0] * 24), 8, 20)[
+        "verdict"] == "SHORTEN"        # 12F below
+    assert assess_walk_safety(day(feels_like_f=[-1.0] * 24), 8, 20)[
+        "verdict"] == "DO_NOT_WALK"    # 21F below
+    assert assess_walk_safety(day(feels_like_f=[95.0] * 24), 8, 20)[
+        "verdict"] == "SHORTEN"        # 11F above
+
+
+def test_husky_band_shrugs_off_what_triggers_the_default():
     chilly = day(feels_like_f=[18.0] * 24)
     assert assess_walk_safety(chilly, 8, 20)["verdict"] == "CAUTION"
-    assert assess_walk_safety(chilly, 8, 20, cold_tolerance=3)["verdict"] == "OK"
+    assert assess_walk_safety(
+        chilly, 8, 20, comfort_min_f=-10, comfort_max_f=70
+    )["verdict"] == "OK"
 
 
-def test_delicate_dog_flags_what_the_default_shrugs_off():
-    # 32F: OK for a default dog, CAUTION at -3 (rung shifts to 35)
-    brisk = day(feels_like_f=[32.0] * 24)
-    assert assess_walk_safety(brisk, 8, 20)["verdict"] == "OK"
-    assert assess_walk_safety(brisk, 8, 20, cold_tolerance=-3)["verdict"] == "CAUTION"
+def test_narrow_band_bulldog_flags_both_directions():
+    # the case the single-axis design could not express
+    mild = day(feels_like_f=[78.0] * 24)
+    assert assess_walk_safety(mild, 8, 20)["verdict"] == "OK"
+    assert assess_walk_safety(
+        mild, 8, 20, comfort_min_f=45, comfort_max_f=75
+    )["verdict"] == "CAUTION"
+    cool = day(feels_like_f=[40.0] * 24)
+    assert assess_walk_safety(
+        cool, 8, 20, comfort_min_f=45, comfort_max_f=75
+    )["verdict"] == "CAUTION"
 
 
-def test_heat_tolerance_shifts_the_heat_ladder():
-    # 88F: SHORTEN default (rung 88), OK at +3 (rungs 99/103/110)
-    warm = day(feels_like_f=[88.0] * 24)
-    assert assess_walk_safety(warm, 8, 20)["verdict"] == "SHORTEN"
-    assert assess_walk_safety(warm, 8, 20, heat_tolerance=3)["verdict"] == "OK"
+def test_degenerate_bands_are_forgiven():
+    # inverted swaps; too-narrow widens to the 10F minimum
+    mild = day(feels_like_f=[60.0] * 24)
+    r = assess_walk_safety(mild, 8, 20, comfort_min_f=80, comfort_max_f=30)
+    assert r["window"]["comfort_min_f"] == 30
+    r = assess_walk_safety(mild, 8, 20, comfort_min_f=60, comfort_max_f=61)
+    assert r["window"]["comfort_max_f"] - r["window"]["comfort_min_f"] == 10
 
 
-def test_wet_cold_escalation_respects_cold_tolerance():
-    # 34F drizzle bumps a default dog to CAUTION; a +3 dog's wet-cold
-    # trigger sits at 20.6F, so nothing fires
+def test_wet_cold_stays_absolute_physics():
+    # near-freezing drizzle bumps even a husky-band dog: wet fur is
+    # wet fur
     drizzle = day(feels_like_f=[34.0] * 24, precip_mm=[1.0] * 24)
-    assert assess_walk_safety(drizzle, 8, 20)["verdict"] == "CAUTION"
-    assert assess_walk_safety(drizzle, 8, 20, cold_tolerance=3)["verdict"] == "OK"
+    r = assess_walk_safety(drizzle, 8, 20, comfort_min_f=-10, comfort_max_f=70)
+    assert r["verdict"] == "CAUTION"
+    assert any("wet-cold" in x for x in r["reasons"])
 
 
 def test_buffer_delays_the_walk_but_not_the_arrival(monkeypatch):
@@ -428,11 +451,12 @@ def test_buffer_delays_the_walk_but_not_the_arrival(monkeypatch):
     assert r["total_minutes"] == 60 + 110 + 15
 
 
-def test_timeline_echoes_tolerances_for_the_auditor(monkeypatch):
+def test_timeline_echoes_the_band_for_the_auditor(monkeypatch):
     monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
     monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
     stops = [dict(s) for s in STOPS]
-    stops[2]["cold_tolerance"] = -2
+    stops[2]["comfort_min_f"] = 45
+    stops[2]["comfort_max_f"] = 95
     r = optimize_route(stops, start_time="13:00")
     rex = next(e for e in r["timeline"] if e["stop"] == "Rex")
-    assert rex["cold_tolerance"] == -2
+    assert rex["comfort_min_f"] == 45 and rex["comfort_max_f"] == 95
