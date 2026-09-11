@@ -376,3 +376,63 @@ def test_route_rejects_too_few_or_too_many_stops():
     assert "error" in optimize_route([{"name": "solo", "lat": 0, "lon": 0}])
     too_many = [{"name": f"s{i}", "lat": 0, "lon": 0} for i in range(11)]
     assert "error" in optimize_route(too_many)
+
+
+# ---------------------------------------------------------------------
+# per-dog tolerance and buffer
+# ---------------------------------------------------------------------
+
+
+def test_husky_shrugs_off_what_triggers_the_default():
+    # 18F: CAUTION for a default dog (rung 20), fine for +3 cold
+    # tolerance (rung shifts to 5)
+    chilly = day(feels_like_f=[18.0] * 24)
+    assert assess_walk_safety(chilly, 8, 20)["verdict"] == "CAUTION"
+    assert assess_walk_safety(chilly, 8, 20, cold_tolerance=3)["verdict"] == "OK"
+
+
+def test_delicate_dog_flags_what_the_default_shrugs_off():
+    # 32F: OK for a default dog, CAUTION at -3 (rung shifts to 35)
+    brisk = day(feels_like_f=[32.0] * 24)
+    assert assess_walk_safety(brisk, 8, 20)["verdict"] == "OK"
+    assert assess_walk_safety(brisk, 8, 20, cold_tolerance=-3)["verdict"] == "CAUTION"
+
+
+def test_heat_tolerance_shifts_the_heat_ladder():
+    # 88F: SHORTEN default (rung 88), OK at +3 (rungs 99/103/110)
+    warm = day(feels_like_f=[88.0] * 24)
+    assert assess_walk_safety(warm, 8, 20)["verdict"] == "SHORTEN"
+    assert assess_walk_safety(warm, 8, 20, heat_tolerance=3)["verdict"] == "OK"
+
+
+def test_wet_cold_escalation_respects_cold_tolerance():
+    # 34F drizzle bumps a default dog to CAUTION; a +3 dog's wet-cold
+    # trigger sits at 20.6F, so nothing fires
+    drizzle = day(feels_like_f=[34.0] * 24, precip_mm=[1.0] * 24)
+    assert assess_walk_safety(drizzle, 8, 20)["verdict"] == "CAUTION"
+    assert assess_walk_safety(drizzle, 8, 20, cold_tolerance=3)["verdict"] == "OK"
+
+
+def test_buffer_delays_the_walk_but_not_the_arrival(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [dict(s) for s in STOPS]
+    stops[1]["buffer_minutes"] = 15   # Daisy: slow elevator
+    r = optimize_route(stops, start_time="13:00")
+    daisy = r["timeline"][0]
+    assert daisy["arrive"] == "13:09"
+    assert daisy["walk_start"] == "13:24"      # 15 min prep
+    assert daisy["walk_end"] == "13:44"
+    assert daisy["buffer_minutes"] == 15
+    assert r["buffer_minutes"] == 15
+    assert r["total_minutes"] == 60 + 110 + 15
+
+
+def test_timeline_echoes_tolerances_for_the_auditor(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [dict(s) for s in STOPS]
+    stops[2]["cold_tolerance"] = -2
+    r = optimize_route(stops, start_time="13:00")
+    rex = next(e for e in r["timeline"] if e["stop"] == "Rex")
+    assert rex["cold_tolerance"] == -2

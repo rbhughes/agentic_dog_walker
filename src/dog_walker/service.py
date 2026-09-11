@@ -98,6 +98,9 @@ class Pet(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     address: str = Field(min_length=4, max_length=MAX_FIELD_CHARS)
     walk_minutes: WalkMinutes
+    buffer_minutes: int = Field(default=0, ge=0, le=60)
+    cold_tolerance: int = Field(default=0, ge=-3, le=3)
+    heat_tolerance: int = Field(default=0, ge=-3, le=3)
 
 
 class PlanRequest(BaseModel):

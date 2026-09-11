@@ -181,3 +181,59 @@ def test_minutes_timeline_is_rejected_not_waved_through():
          "walk_end": 30, "walk_minutes": 20},
     ]})
     assert "start_time" in audit_weather_coverage([call, result])
+
+
+def test_tolerance_mismatch_is_a_gap():
+    # Daisy is delicate (-3 cold): a default-tolerance weather check
+    # would judge her by the wrong ladder, so it does not cover her
+    call = assistant_call("optimize_route", {
+        "stops": [
+            {"name": "home", "lat": 41.948, "lon": -87.655},
+            {"name": "Daisy", "lat": ZOO[0], "lon": ZOO[1],
+             "walk_minutes": 20, "cold_tolerance": -3},
+        ],
+        "start_time": "13:00",
+    })
+    result = tool_result({"timeline": [
+        {"stop": "Daisy", "arrive": "16:09", "walk_start": "16:09",
+         "walk_end": "16:29", "walk_minutes": 20, "cold_tolerance": -3},
+    ]})
+    plain_check = weather_call(*ZOO, 16, 17)   # no tolerance passed
+    gap = audit_weather_coverage([plain_check, call, result])
+    assert gap and "cold_tolerance=-3" in gap
+
+
+def test_matching_tolerances_satisfy_the_auditor():
+    call = assistant_call("optimize_route", {
+        "stops": [
+            {"name": "home", "lat": 41.948, "lon": -87.655},
+            {"name": "Daisy", "lat": ZOO[0], "lon": ZOO[1],
+             "walk_minutes": 20, "cold_tolerance": -3},
+        ],
+        "start_time": "13:00",
+    })
+    result = tool_result({"timeline": [
+        {"stop": "Daisy", "arrive": "16:09", "walk_start": "16:09",
+         "walk_end": "16:29", "walk_minutes": 20, "cold_tolerance": -3},
+    ]})
+    tolerant_check = assistant_call("check_weather", {
+        "lat": ZOO[0], "lon": ZOO[1], "date": "2026-09-11",
+        "start_hour": 16, "end_hour": 17, "cold_tolerance": -3,
+    })
+    assert audit_weather_coverage([tolerant_check, call, result]) is None
+
+
+def test_out_of_range_tolerance_is_bounced():
+    error = validate_call("check_weather", {
+        "lat": 41.9, "lon": -87.6, "date": "2026-09-11",
+        "cold_tolerance": 5,
+    })
+    assert "cold_tolerance" in error and "5" in error
+
+
+def test_oversized_buffer_is_bounced():
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "Rex", "lat": 0.0, "lon": 0.1,
+              "walk_minutes": 60, "buffer_minutes": 90}]
+    error = validate_call("optimize_route", {"stops": stops})
+    assert "buffer_minutes" in error and "90" in error

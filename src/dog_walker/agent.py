@@ -304,9 +304,13 @@ def audit_weather_coverage(messages: list) -> str | None:
         if lat is None:
             continue
         walk_a, walk_b = _clock_to_hours(start), _clock_to_hours(end)
+        want_cold = int(entry.get("cold_tolerance", 0))
+        want_heat = int(entry.get("heat_tolerance", 0))
 
         def covered(w: dict) -> bool:
-            """Does this weather call cover the walk in space and time?"""
+            """Right place, covering hours, AND this dog's tolerances:
+            a delicate dog's verdict from a default-tolerance check
+            would be wrong, so tolerance mismatch = not covered."""
             near = (
                 abs(w.get("lat", 999) - lat) <= _NEAR_DEG
                 and abs(w.get("lon", 999) - lon) <= _NEAR_DEG
@@ -315,16 +319,25 @@ def audit_weather_coverage(messages: list) -> str | None:
             in_time = w.get("start_hour", 8) <= math.floor(walk_a) and w.get(
                 "end_hour", 20
             ) >= math.ceil(walk_b)
-            return near and in_time
+            tolerances = (
+                int(w.get("cold_tolerance", 0)) == want_cold
+                and int(w.get("heat_tolerance", 0)) == want_heat
+            )
+            return near and in_time and tolerances
 
         if not any(covered(w) for w in weather_calls):
             # Prescribe the exact call, don't just name the gap
             # (vague messages livelocked a model once).
+            extra = ""
+            if want_cold:
+                extra += f", cold_tolerance={want_cold}"
+            if want_heat:
+                extra += f", heat_tolerance={want_heat}"
             gaps.append(
                 f"GAP: {entry['stop']} walks {start}-{end}: call "
                 f"check_weather with lat={lat}, lon={lon}, "
                 f"start_hour={math.floor(walk_a)}, "
-                f"end_hour={math.ceil(walk_b)}."
+                f"end_hour={math.ceil(walk_b)}{extra}."
             )
     if gaps:
         return " ".join(gaps) + " Make ALL these calls, then submit again."
@@ -387,7 +400,10 @@ def run_events(request: str, model: str | None = None):
                 "permission. Batch all addresses into ONE geocode call. "
                 "Weather must be verified for each dog's ACTUAL walk "
                 "interval from the route timeline, at that dog's "
-                "location. Weather windows are whole hours with an "
+                "location, passing that dog's cold_tolerance and "
+                "heat_tolerance if stated. Include each dog's stated "
+                "buffer_minutes and tolerances in the optimize_route "
+                "stops. Weather windows are whole hours with an "
                 "EXCLUSIVE end: a walk 13:29-13:59 is start_hour 13, "
                 "end_hour 14. Finish by calling submit_plan exactly "
                 "once. Dates are ISO YYYY-MM-DD. Be concise."

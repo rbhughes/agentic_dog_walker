@@ -28,12 +28,24 @@ PRESETS: dict[str, dict] = {
                 "name": "Daisy",
                 "address": "Lincoln Park Zoo, Chicago",
                 "walk_minutes": 20,
+                # Italian Greyhound: shivers in fall, thrives in heat
+                "cold_tolerance": -3,
+                "heat_tolerance": 3,
             },
-            {"name": "Rex", "address": "5218 N Clark St, Chicago", "walk_minutes": 60},
+            {
+                "name": "Rex",
+                "address": "5218 N Clark St, Chicago",
+                "walk_minutes": 60,
+                # slow freight elevator + feeding routine
+                "buffer_minutes": 10,
+            },
             {
                 "name": "Wilbur",
                 "address": "4802 N Broadway, Chicago",
                 "walk_minutes": 30,
+                # husky mix: built for January, suffers in July
+                "cold_tolerance": 3,
+                "heat_tolerance": -3,
             },
         ],
     },
@@ -127,4 +139,15 @@ def build_request(start_address: str, start_time: str, pets: list[dict]) -> str:
             f"{pet['name']} is at {pet['address']} and gets a "
             f"{pet['walk_minutes']} minute walk."
         )
+        if pet.get("buffer_minutes"):
+            lines.append(
+                f"{pet['name']} needs {pet['buffer_minutes']} minutes of "
+                f"prep time before the walk (buffer_minutes)."
+            )
+        if pet.get("cold_tolerance") or pet.get("heat_tolerance"):
+            lines.append(
+                f"{pet['name']} has cold_tolerance "
+                f"{pet.get('cold_tolerance', 0)} and heat_tolerance "
+                f"{pet.get('heat_tolerance', 0)}."
+            )
     return " ".join(lines)

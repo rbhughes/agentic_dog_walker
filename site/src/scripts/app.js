@@ -125,9 +125,45 @@ function petRow() {
         <option value="60">60 min</option>
       </select>
     </label>
+    <label>Prep min
+      <input name="pet_buffer" type="number" min="0" max="60" step="5"
+        value="0" size="3" title="extra minutes: elevators, feeding, parking" />
+    </label>
+    <label>Cold tol.
+      <select name="pet_cold" title="-3 delicate ... +3 husky">
+        ${toleranceOptions()}
+      </select>
+    </label>
+    <label>Heat tol.
+      <select name="pet_heat" title="-3 overheats ... +3 heat-proof">
+        ${tolerancesHeat()}
+      </select>
+    </label>
     <button type="button" title="remove">&times;</button>`;
   row.querySelector("button").addEventListener("click", removePet);
   return row;
+}
+
+function tolerangeRange() {
+  return [-3, -2, -1, 0, 1, 2, 3];
+}
+
+function tolerancesOptionsHtml() {
+  return tolerangeRange()
+    .map(function render(v) {
+      const sel = v === 0 ? " selected" : "";
+      const label = v > 0 ? `+${v}` : String(v);
+      return `<option value="${v}"${sel}>${label}</option>`;
+    })
+    .join("");
+}
+
+function toleranceOptions() {
+  return tolerancesOptionsHtml();
+}
+
+function tolerancesHeat() {
+  return tolerancesOptionsHtml();
 }
 
 function removePet(e) {
@@ -150,11 +186,17 @@ function submitCustom(e) {
   const names = data.getAll("pet_name");
   const addresses = data.getAll("pet_address");
   const minutes = data.getAll("pet_minutes");
+  const buffers = data.getAll("pet_buffer");
+  const colds = data.getAll("pet_cold");
+  const heats = data.getAll("pet_heat");
   for (let i = 0; i < names.length; i++) {
     pets.push({
       name: names[i],
       address: addresses[i],
       walk_minutes: parseInt(minutes[i], 10),
+      buffer_minutes: parseInt(buffers[i] || "0", 10),
+      cold_tolerance: parseInt(colds[i] || "0", 10),
+      heat_tolerance: parseInt(heats[i] || "0", 10),
     });
   }
   runPlan({
@@ -337,8 +379,12 @@ function renderResult(plan) {
   el.timeline.innerHTML = "";
   for (const entry of routeResult?.timeline || []) {
     const li = document.createElement("li");
+    const prep = entry.buffer_minutes
+      ? ` after ${entry.buffer_minutes} min prep,`
+      : "";
     li.textContent = entry.walk_minutes
-      ? `${entry.arrive} — ${entry.stop}: ${entry.walk_minutes} min walk (until ${entry.walk_end})`
+      ? `${entry.arrive} — ${entry.stop}:${prep} ${entry.walk_minutes} min walk ` +
+        `${entry.walk_start}–${entry.walk_end}`
       : `${entry.arrive} — back at ${entry.stop}`;
     el.timeline.appendChild(li);
   }

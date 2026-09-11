@@ -56,10 +56,26 @@ PRECIP_LADDER = [
 ]
 
 
+# Per-dog tolerance: each point shifts that dog's verdict thresholds
+# by this many degrees F. cold_tolerance +3 (husky) moves the cold
+# rungs 15F colder before they trigger; heat_tolerance +3 (Italian
+# Greyhound in summer) moves the heat rungs 15F hotter. Range -3..+3.
+# Judgment stays deterministic and in the tool -- the model passes
+# scores, never invents verdicts.
+TOLERANCE_STEP_F = 5
+
+
+def _shift_ladder(ladder: list, degrees: float) -> list:
+    """A copy of the ladder with every rung moved by `degrees`."""
+    return [(threshold + degrees, verdict) for threshold, verdict in ladder]
+
+
 def _wet_cold(window: dict) -> bool:
     """Rain near freezing: a soaked coat loses its insulation, so the
-    combination is worse than either number alone suggests."""
-    return window["max_precip_mm"] > 0.5 and window["min_feels_like_f"] <= 35.6
+    combination is worse than either number alone suggests. The
+    trigger shifts with the dog's cold tolerance like the ladders."""
+    threshold = 35.6 - TOLERANCE_STEP_F * window.get("cold_tolerance", 0)
+    return window["max_precip_mm"] > 0.5 and window["min_feels_like_f"] <= threshold
 
 
 # Combo escalations: (name, predicate over the window summary, reason).
@@ -122,7 +138,13 @@ def fetch_forecast(lat: float, lon: float, date: str) -> dict[str, list]:
     }
 
 
-def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -> dict:
+def assess_walk_safety(
+    hours: dict[str, list],
+    start_hour: int,
+    end_hour: int,
+    cold_tolerance: int = 0,
+    heat_tolerance: int = 0,
+) -> dict:
     """The judgment seat of the whole system. Deterministic, offline,
     unit-testable: no model, no network.
 
@@ -160,13 +182,22 @@ def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -
         "max_precip_mm": pick("precip_mm", max),
     }
 
+    # tolerance shifts: a cold-tolerant dog's cold rungs move colder
+    # (subtract), a heat-tolerant dog's heat rungs move hotter (add)
+    cold_ladder = _shift_ladder(COLD_LADDER, -TOLERANCE_STEP_F * cold_tolerance)
+    heat_ladder = _shift_ladder(HEAT_LADDER, TOLERANCE_STEP_F * heat_tolerance)
+    if cold_tolerance:
+        window["cold_tolerance"] = cold_tolerance
+    if heat_tolerance:
+        window["heat_tolerance"] = heat_tolerance
+
     verdict, reasons = "OK", []
     # (value, ladder, colder_is_worse, label) -- heat uses feels-like
     # too: apparent_temperature folds in humidity, which is the part
     # of heat that kills dogs
     ladder_checks = [
-        (window["min_feels_like_f"], COLD_LADDER, True, "feels-like low"),
-        (window["max_feels_like_f"], HEAT_LADDER, False, "feels-like high"),
+        (window["min_feels_like_f"], cold_ladder, True, "feels-like low"),
+        (window["max_feels_like_f"], heat_ladder, False, "feels-like high"),
         (window["max_wind_kph"], WIND_LADDER, False, "wind"),
         (window["max_precip_mm"], PRECIP_LADDER, False, "precipitation"),
     ]
@@ -192,7 +223,13 @@ def assess_walk_safety(hours: dict[str, list], start_hour: int, end_hour: int) -
 
 
 def check_weather(
-    lat: float, lon: float, date: str, start_hour: int = 8, end_hour: int = 20
+    lat: float,
+    lon: float,
+    date: str,
+    start_hour: int = 8,
+    end_hour: int = 20,
+    cold_tolerance: int = 0,
+    heat_tolerance: int = 0,
 ) -> dict[str, Any]:
     """The tool the agent (and MCP facade) exposes: fetch + assess.
 
@@ -207,7 +244,9 @@ def check_weather(
     if end_hour <= start_hour:
         end_hour = min(start_hour + 1, 24)
     hours = fetch_forecast(lat, lon, date)
-    return assess_walk_safety(hours, start_hour, end_hour)
+    return assess_walk_safety(
+        hours, start_hour, end_hour, cold_tolerance, heat_tolerance
+    )
 
 
 CHECK_WEATHER_SCHEMA = {
@@ -238,6 +277,20 @@ CHECK_WEATHER_SCHEMA = {
                     "description": (
                         "walk window end hour, EXCLUSIVE (default 20): a "
                         "walk 13:29-13:59 is start_hour 13, end_hour 14"
+                    ),
+                },
+                "cold_tolerance": {
+                    "type": "integer", "minimum": -3, "maximum": 3,
+                    "description": (
+                        "this dog's cold tolerance, -3 (delicate) to +3 "
+                        "(husky); shifts cold thresholds 5F per point"
+                    ),
+                },
+                "heat_tolerance": {
+                    "type": "integer", "minimum": -3, "maximum": 3,
+                    "description": (
+                        "this dog's heat tolerance, -3 to +3; shifts heat "
+                        "thresholds 5F per point"
                     ),
                 },
             },
@@ -464,9 +517,13 @@ WALK_DURATIONS = (20, 30, 60)  # the products a dog walker actually sells
 def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str, Any]:
     """Best transit order through the stops, plus the resulting schedule.
 
-    Each stop: {"name": ..., "lat": ..., "lon": ..., "walk_minutes": ...}
-    where walk_minutes is that dog's own walk (20/30/60), taken as a
-    loop from its home -- the walker arrives, walks the dog out and
+    Each stop: {"name", "lat", "lon", "walk_minutes", and optionally
+    "buffer_minutes" (prep time -- elevators, feeding, parking --
+    spent BEFORE the walk: it delays walk_start and lengthens the
+    schedule but not the dog's time outside) and "cold_tolerance"/
+    "heat_tolerance" (-3..+3, echoed into the timeline so weather
+    checks can be audited against them)}. walk_minutes is that dog's
+    own walk (20/30/60), taken as a loop from its home -- the walker arrives, walks the dog out and
     back, returns it, and transits to the next stop. Stop 0 is the
     walker's start/end and takes no walk_minutes.
 
@@ -516,18 +573,24 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
             timeline.append({"stop": stops[0]["name"], "arrive": clock(t)})
             break
         walk = int(stops[b].get("walk_minutes", 0))
-        timeline.append(
-            {
-                "stop": stops[b]["name"],
-                "arrive": clock(t),
-                "walk_start": clock(t),
-                "walk_end": clock(t + walk),
-                "walk_minutes": walk,
-            }
-        )
-        t += walk
+        buffer = int(stops[b].get("buffer_minutes", 0))
+        entry = {
+            "stop": stops[b]["name"],
+            "arrive": clock(t),
+            "walk_start": clock(t + buffer),
+            "walk_end": clock(t + buffer + walk),
+            "walk_minutes": walk,
+        }
+        if buffer:
+            entry["buffer_minutes"] = buffer
+        for key in ("cold_tolerance", "heat_tolerance"):
+            if stops[b].get(key):
+                entry[key] = int(stops[b][key])
+        timeline.append(entry)
+        t += buffer + walk
 
     dog_min = sum(int(s.get("walk_minutes", 0)) for s in stops)
+    buffer_min = sum(int(s.get("buffer_minutes", 0)) for s in stops)
     return {
         "order": [stops[i]["name"] for i in order],
         "legs": legs,
@@ -535,7 +598,8 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
         "total_walk_meters": total_m,
         "transit_minutes": round(transit_min),
         "dog_walk_minutes": dog_min,
-        "total_minutes": round(transit_min + dog_min),
+        "buffer_minutes": buffer_min,
+        "total_minutes": round(transit_min + dog_min + buffer_min),
         "uses_real_streets": real_streets,
         "geometry": _street_geometry([coords[i] for i in loop]),
     }
@@ -573,6 +637,21 @@ OPTIMIZE_ROUTE_SCHEMA = {
                                     "from its own home; 0 = the start "
                                     "stop (no dog there)"
                                 ),
+                            },
+                            "buffer_minutes": {
+                                "type": "integer", "minimum": 0, "maximum": 60,
+                                "description": (
+                                    "prep minutes before the walk "
+                                    "(elevators, feeding, parking)"
+                                ),
+                            },
+                            "cold_tolerance": {
+                                "type": "integer", "minimum": -3, "maximum": 3,
+                                "description": "this dog's cold tolerance",
+                            },
+                            "heat_tolerance": {
+                                "type": "integer", "minimum": -3, "maximum": 3,
+                                "description": "this dog's heat tolerance",
                             },
                         },
                         "required": ["name", "lat", "lon"],
