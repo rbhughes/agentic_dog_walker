@@ -158,12 +158,12 @@
 
 <style is:global>
   :root {
-    --page: #eeeeeb;
+    --page: #eff1f6;
     --surface: #fcfcfb;
     --ink: #0b0b0b;
     --ink-2: #52514e;
     --muted: #898781;
-    --hairline: #ddddd6;
+    --hairline: #dcdee8;
     --border: rgba(11, 11, 11, 0.1);
     --accent: #256abf;
     --brand: #d95f00;
@@ -335,4 +335,9 @@
     border-top: 1px solid var(--hairline); background: var(--surface);
     margin-top: 2rem; padding: 1rem 2.1rem; color: var(--muted); font-size: 0.85rem;
   }
+
+  /* family theme 2026-09-12: violet-gray page + sticky footer */
+  html { height: 100%; }
+  body { min-height: 100vh; display: flex; flex-direction: column; }
+  body > footer { margin-top: auto; }
 </style>
