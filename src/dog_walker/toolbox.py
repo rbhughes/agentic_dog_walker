@@ -198,7 +198,14 @@ def check_weather(
 
     Note the typed signature -- the 2024 version took one comma-packed
     string ("lat,lon,YYYY-MM-DD") because ReAct-era tools ate prose.
+
+    end_hour is exclusive, which invites an off-by-one whenever a walk
+    fits inside one clock hour (13:29-13:59 floors to [13, 13) --
+    observed crashing two models live). Forgive it: an empty or
+    inverted window means "that hour".
     """
+    if end_hour <= start_hour:
+        end_hour = min(start_hour + 1, 24)
     hours = fetch_forecast(lat, lon, date)
     return assess_walk_safety(hours, start_hour, end_hour)
 
@@ -224,11 +231,14 @@ CHECK_WEATHER_SCHEMA = {
                 },
                 "start_hour": {
                     "type": "integer",
-                    "description": "walk window start, 0-23 local (default 8)",
+                    "description": "walk window start hour, 0-23 local (default 8)",
                 },
                 "end_hour": {
                     "type": "integer",
-                    "description": "walk window end, 0-23 local (default 20)",
+                    "description": (
+                        "walk window end hour, EXCLUSIVE (default 20): a "
+                        "walk 13:29-13:59 is start_hour 13, end_hour 14"
+                    ),
                 },
             },
             "required": ["lat", "lon", "date"],

@@ -50,7 +50,7 @@ except ImportError:
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "qwen/qwen3-8b"
 
-MAX_ROUNDS = 10
+MAX_ROUNDS = 14
 
 
 # ---------------------------------------------------------------------
@@ -287,6 +287,7 @@ def audit_weather_coverage(messages: list) -> str | None:
     # stop name -> coordinates, from the route call's own arguments
     coords = {s["name"]: (s["lat"], s["lon"]) for s in route_call["stops"]}
 
+    gaps: list[str] = []
     for entry in timeline:
         if not entry.get("walk_minutes"):
             continue  # the start stop / return home
@@ -317,17 +318,16 @@ def audit_weather_coverage(messages: list) -> str | None:
             return near and in_time
 
         if not any(covered(w) for w in weather_calls):
-            # Prescribe the exact call, don't just name the gap: first
-            # draft said only "no call covers that interval" and the
-            # model livelocked, re-making the same too-short check
-            # three times. The auditor knows the needed window --
-            # say it.
-            return (
-                f"GAP: {entry['stop']} walks {start}-{end}. Call "
+            # Prescribe the exact call, don't just name the gap
+            # (vague messages livelocked a model once).
+            gaps.append(
+                f"GAP: {entry['stop']} walks {start}-{end}: call "
                 f"check_weather with lat={lat}, lon={lon}, "
                 f"start_hour={math.floor(walk_a)}, "
-                f"end_hour={math.ceil(walk_b)}, then submit again."
+                f"end_hour={math.ceil(walk_b)}."
             )
+    if gaps:
+        return " ".join(gaps) + " Make ALL these calls, then submit again."
     return None
 
 
@@ -387,8 +387,10 @@ def run_events(request: str, model: str | None = None):
                 "permission. Batch all addresses into ONE geocode call. "
                 "Weather must be verified for each dog's ACTUAL walk "
                 "interval from the route timeline, at that dog's "
-                "location. Finish by calling submit_plan exactly once. "
-                "Dates are ISO YYYY-MM-DD. Be concise."
+                "location. Weather windows are whole hours with an "
+                "EXCLUSIVE end: a walk 13:29-13:59 is start_hour 13, "
+                "end_hour 14. Finish by calling submit_plan exactly "
+                "once. Dates are ISO YYYY-MM-DD. Be concise."
             ),
         },
         {"role": "user", "content": request},

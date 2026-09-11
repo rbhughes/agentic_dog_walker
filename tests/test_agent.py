@@ -134,6 +134,27 @@ def test_right_time_wrong_place_is_still_a_gap():
     assert "Daisy" in audit_weather_coverage(messages)
 
 
+def test_all_gaps_reported_in_one_veto():
+    # serial revelation cost 2 rounds per dog and exhausted the round
+    # budget live; the auditor now lists every gap at once
+    two_dogs = assistant_call("optimize_route", {
+        "stops": [
+            {"name": "home", "lat": 41.948, "lon": -87.655},
+            {"name": "Daisy", "lat": ZOO[0], "lon": ZOO[1], "walk_minutes": 20},
+            {"name": "Rex", "lat": 41.9764, "lon": -87.6685, "walk_minutes": 60},
+        ],
+        "start_time": "13:00",
+    })
+    result = tool_result({"timeline": [
+        {"stop": "Rex", "arrive": "13:30", "walk_start": "13:30",
+         "walk_end": "14:30", "walk_minutes": 60},
+        {"stop": "Daisy", "arrive": "16:09", "walk_start": "16:09",
+         "walk_end": "16:29", "walk_minutes": 20},
+    ]})
+    gap = audit_weather_coverage([two_dogs, result])
+    assert "Rex" in gap and "Daisy" in gap and "ALL" in gap
+
+
 def test_openai_dialect_string_arguments_are_understood():
     call = assistant_call("optimize_route", {
         "stops": [

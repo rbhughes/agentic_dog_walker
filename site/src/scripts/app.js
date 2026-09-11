@@ -438,8 +438,6 @@ async function loadInfo() {
     el.pill.textContent =
       `${info.model} · ${info.backend === "openrouter" ? "rented" : "local"}` +
       " inference · served from a laptop in a closet";
-    const name = document.getElementById("model-name");
-    if (name) name.textContent = info.model;
     for (const m of info.models || []) {
       const opt = document.createElement("option");
       opt.value = m.id;

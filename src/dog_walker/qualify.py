@@ -103,7 +103,7 @@ def qualify(model_id: str) -> dict:
     from dog_walker.presets import PRESETS, build_request, seed_geocode_cache
 
     seed_geocode_cache()
-    p = PRESETS["loop-lunch-hour"]
+    p = PRESETS["lakeview-classic"]  # 3 dogs: the harder gate
     prompt = build_request(p["start_address"], p["start_time"], p["pets"])
 
     started = time.monotonic()

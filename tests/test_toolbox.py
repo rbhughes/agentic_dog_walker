@@ -245,6 +245,18 @@ def test_geocode_refuses_oversized_batches():
 # ---------------------------------------------------------------------
 
 
+def test_within_one_hour_window_is_forgiven(monkeypatch):
+    # 13:29-13:59 floors to [13, 13) -- crashed two models live;
+    # an empty window now means "that hour"
+    def fake_forecast(lat, lon, date):
+        return day()
+
+    monkeypatch.setattr("dog_walker.toolbox.fetch_forecast", fake_forecast)
+    result = check_weather(41.9, -87.6, "2026-09-11", 13, 13)
+    assert result["verdict"] == "OK"
+    assert result["window"]["end_hour"] == 14
+
+
 def test_check_weather_is_fetch_then_assess(monkeypatch):
     def fake_forecast(lat, lon, date):
         return day(feels_like_f=[-27.0] * 24)

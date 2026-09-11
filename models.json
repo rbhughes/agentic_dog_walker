@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-10T17:23:45.075180-05:00",
+  "generated_at": "2026-09-11T07:45:17.517003-05:00",
   "criteria": {
     "prompt_cap_per_m": 0.3,
     "completion_cap_per_m": 1.2,
@@ -20,25 +20,25 @@
     },
     {
       "id": "inclusionai/ling-3.0-flash",
-      "label": "inclusionAI: Ling 3.0 Flash \u2014 $0.02/M in, qualified 13s"
-    },
-    {
-      "id": "upstage/solar-pro4",
-      "label": "Upstage: Solar Pro 4 \u2014 $0.03/M in, qualified 14s"
+      "label": "inclusionAI: Ling 3.0 Flash \u2014 $0.02/M in, qualified 30s"
     },
     {
       "id": "qwen/qwen3.7-flash",
-      "label": "Qwen: Qwen3.7 Flash \u2014 $0.03/M in, qualified 14s"
+      "label": "Qwen: Qwen3.7 Flash \u2014 $0.03/M in, qualified 39s"
     },
     {
       "id": "openai/gpt-oss-120b",
-      "label": "OpenAI: gpt-oss-120b \u2014 $0.04/M in, qualified 71s"
+      "label": "OpenAI: gpt-oss-120b \u2014 $0.04/M in, qualified 57s"
+    },
+    {
+      "id": "inception/mercury-2.5",
+      "label": "Inception: Mercury 2.5 \u2014 $0.04/M in, qualified 8s"
     }
   ],
   "rejected": [
     {
       "id": "openai/gpt-oss-20b",
-      "reason": "no submit_plan within 10 rounds; last message: "
+      "reason": "deadline 120s"
     }
   ]
 }
