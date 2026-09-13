@@ -211,3 +211,5 @@ __marimo__/
 
 scribble.txt
 runs/
+.DS_Store
+**/.DS_Store
