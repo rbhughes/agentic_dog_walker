@@ -425,18 +425,17 @@ def audit_weather_coverage(messages: list) -> str | None:
             return near and in_time and band
 
         if not any(covered(w) for w in weather_calls):
-            # Prescribe the exact call, don't just name the gap
-            # (vague messages livelocked a model once).
-            extra = ""
-            if (want_lo, want_hi) != (DEFAULT_COMFORT_MIN_F, DEFAULT_COMFORT_MAX_F):
-                extra = (
-                    f", comfort_min_f={want_lo:g}, comfort_max_f={want_hi:g}"
-                )
+            # Prescribe the EXACT call, band included even at the
+            # default. Omitting it when the band is default let a
+            # model that hallucinated a wrong band ([0,5]) livelock:
+            # its check never matched and the gap never told it the
+            # right band. Always state the target.
             gaps.append(
                 f"GAP: {entry['stop']} walks {start}-{end}: call "
                 f"check_weather with lat={lat}, lon={lon}, "
                 f"start_hour={math.floor(walk_a)}, "
-                f"end_hour={math.ceil(walk_b)}{extra}."
+                f"end_hour={math.ceil(walk_b)}, "
+                f"comfort_min_f={want_lo:g}, comfort_max_f={want_hi:g}."
             )
     if gaps:
         return " ".join(gaps) + " Make ALL these calls, then submit again."
@@ -643,15 +642,37 @@ def run(request: str, model: str | None = None, verbose: bool = True) -> dict:
 # CLI harness: `uv run python -m dog_walker.agent "<request>"`
 # ---------------------------------------------------------------------
 
+DEMOS = {
+    # exercises every per-dog parameter, and stays feasible:
+    # comfort band (Daisy), medication deadline + handling time (Daisy),
+    # buffer + hill tolerance / terrain check (Ziggy), plain dog (Rex)
+    "full": (
+        "Plan this morning's walks starting and ending at 21 W Chestnut "
+        "St, Chicago. I leave at 09:00. "
+        "Daisy is at Lincoln Park Zoo, Chicago, gets a 20 minute walk, is "
+        "sensitive to cold so keep her comfortable between 45 and 95 F, "
+        "and needs medication by 10:30 which takes 10 minutes to give. "
+        "Ziggy is at Wrigley Field, Chicago, gets a 30 minute walk, needs "
+        "15 minutes of prep time before the walk because of a slow "
+        "elevator, and can't handle hills -- keep it under 15 metres of "
+        "relief. "
+        "Rex is at 5218 N Clark St, Chicago, gets a 60 minute walk."
+    ),
+    # medication deadlines that no route can meet -> feasible=false
+    "infeasible": (
+        "Plan walks starting and ending at Millennium Park, Chicago. I "
+        "leave at 09:00. "
+        "Rex is at 5218 N Clark St, Chicago, gets a 30 minute walk and "
+        "needs medication by 09:15. "
+        "Daisy is at Lincoln Park Zoo, Chicago, gets a 20 minute walk and "
+        "needs medication by 09:20."
+    ),
+}
+
 if __name__ == "__main__":
     import sys
 
-    demo = (
-        "Plan this afternoon's walks starting and ending at 21 W Chestnut St, Chicago "
-        "Daisy is at Lincoln Park Zoo, Chicago (20 minutes)"
-        "Ziggy is at Wrigley Field, Chicago (30 minutes). "
-        "Rex is at 5218 N Clark St, Chicago (60 minutes). "
-        "I leave at 9:00."
-    )
-    result = run(sys.argv[1] if len(sys.argv) > 1 else demo)
+    arg = sys.argv[1] if len(sys.argv) > 1 else "full"
+    request = DEMOS.get(arg, arg)  # a demo key, or a custom request string
+    result = run(request)
     print(json.dumps(result, indent=2))
