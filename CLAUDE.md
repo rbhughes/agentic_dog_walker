@@ -161,12 +161,14 @@ the plumbing and this documentation stay intact for model experiments.
 ## 4. Environment & commands
 
 - uv project, Python 3.12. `uv sync`.
-- Tests: `uv run --with pytest python -m pytest` — 53 offline tests, no
+- Tests: `uv run --with pytest python -m pytest` — 102 offline tests, no
   network, no model (scripted-backend fixtures prove the event loop).
   (Bare `uv run pytest` can fail to spawn yet exit 0 — never trust it in a
   `&&` chain.)
 - Agent CLI: `uv run python -m dog_walker.agent "<request>"`.
 - Service: `uv run uvicorn dog_walker.service:app --port 8010`.
+- Measurement harness: `uv run python -m dog_walker.measure [--k N]
+  [--models a,b] [--scenarios x,y] [--dry]` — see roadmap below.
 - Model-compat check: `uv run python experiments/runner.py <model>`.
 - Style: no lambdas — named functions with docstrings.
 - Secrets in `.env` (gitignored): `OPENROUTER_API_KEY`,
@@ -174,6 +176,28 @@ the plumbing and this documentation stay intact for model experiments.
 
 ## 5. Roadmap / open questions
 
+- **Measurement harness: DONE 2026-09-14 — the actual deliverable.**
+  `src/dog_walker/measure.py` + `scenarios.py`. Evolves the single-run
+  gate (qualify.py) into a real measurement: every model × the scenario
+  library × k runs. Reports a PASS RATE with a **Wilson score interval**
+  (5/5 ≠ certainty), real **cost/latency/rounds/tokens per plan** (summed
+  from OpenRouter usage — `chat()` now sends `usage:{include:true}` and
+  `run_events` emits `usage`+`rounds` on the terminal event), and a
+  deterministic **failure taxonomy** from the event stream (veto_livelock,
+  schema_thrash, prose_stall, fabricated_feasible, false_infeasible,
+  backend_error, timeout) with the FULL transcript of every failure kept.
+  Grade is deterministic: pass iff a validated submit_plan's `feasible`
+  matches the scenario's known answer (7 scenarios, all ground-truth-
+  checked against the solver). No LLM judge — the auditor IS the
+  measurement. Archives to `measurements/measure-<ts>.json` (gitignored),
+  timestamped from day one so model drift becomes a finding. Scenarios
+  reuse frozen preset coords → zero live geocoding; only inference varies.
+  FIRST FINDING that fed back into the system: qwen3-8b sets optional
+  fields to `null` and livelocked 14 rounds on `None is not of type
+  number`; fixed with `without_nulls()` in the referee (null == unset,
+  matches how tools already read inputs) — single-easy 0/2 → 2/2, ~4×
+  cheaper. Still open: a full sweep (6 models × 7 scenarios × k=5 = 210
+  paid runs) to publish; re-qualify models.json against the 4-tool task.
 - **Hosting: DONE 2026-09-11 — fossil + Tailscale Funnel.** The service
   (not the model) runs on fossil as `dogwalker.service`, public at
   **https://fossil.taild72aca.ts.net** (Funnel → 127.0.0.1:8010).

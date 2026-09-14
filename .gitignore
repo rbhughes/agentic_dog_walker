@@ -211,5 +211,6 @@ __marimo__/
 
 scribble.txt
 runs/
+measurements/
 .DS_Store
 **/.DS_Store

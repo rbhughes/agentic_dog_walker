@@ -127,6 +127,10 @@ def chat(model: str, messages: list, think: bool = False) -> dict:
         "temperature": 0,
         "max_tokens": 2000 if think else 700,
         "reasoning": {"enabled": think},
+        # ask OpenRouter to return real accounting (token counts + the
+        # actual dollar cost of THIS call) in the response's usage block;
+        # the measurement harness sums it into cost-per-plan
+        "usage": {"include": True},
     }
     headers = {
         "Content-Type": "application/json",
@@ -173,6 +177,7 @@ def chat(model: str, messages: list, think: bool = False) -> dict:
         for tc in (raw.get("tool_calls") or [])
     ]
     norm["_raw"] = raw
+    norm["_usage"] = resp.get("usage")  # {prompt_tokens, completion_tokens, cost}
     return norm
 
 
@@ -203,6 +208,21 @@ _ALL_SCHEMAS: dict[str, dict] = {
     **{name: schema for name, (_fn, schema) in REGISTRY.items()},
     "submit_plan": SUBMIT_PLAN_SCHEMA,
 }
+
+
+def without_nulls(value):
+    """Drop keys whose value is null, at every depth. Models routinely
+    emit `null` for an optional field they mean to leave unset
+    (max_relief_m: null); our tools already treat MISSING as the default,
+    so null == absent. Stripping before validation stops a needless
+    'None is not of type number' bounce loop -- measured: qwen3-8b
+    livelocked 14 rounds on it -- and matches how the tools already read
+    their inputs."""
+    if isinstance(value, dict):
+        return {k: without_nulls(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [without_nulls(v) for v in value]
+    return value
 
 
 def validate_call(name: str, arguments: dict) -> str | None:
@@ -479,13 +499,29 @@ def _plan_text(reply: dict) -> str:
     return ""
 
 
+def _accumulate_usage(totals: dict, usage: dict | None) -> None:
+    """Fold one chat call's OpenRouter usage into the running totals."""
+    if not usage:
+        return
+    totals["prompt_tokens"] += usage.get("prompt_tokens", 0) or 0
+    totals["completion_tokens"] += usage.get("completion_tokens", 0) or 0
+    totals["cost"] += usage.get("cost", 0.0) or 0.0
+
+
 def run_events(request: str, model: str | None = None):
     """The agent: plan, act with validation, reflect via the auditor,
     finish through submit_plan. Yields events (vocabulary above).
     `model` overrides DEFAULT_MODEL (the service validates it against
-    an allowlist before it gets here)."""
+    an allowlist before it gets here).
+
+    The terminal event (final or error) carries `usage`
+    (prompt_tokens/completion_tokens/cost, summed across every model
+    round) and `rounds` (how many act rounds ran) -- the raw material
+    for cost- and latency-per-plan in the measurement harness."""
     model = model or DEFAULT_MODEL
     today = datetime.now().astimezone()
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
+    last_round = 0
     yield {"event": "start", "model": model, "backend": "openrouter"}
 
     messages: list[dict] = [
@@ -524,6 +560,7 @@ def run_events(request: str, model: str | None = None):
         # the act machinery below handles them -- planning and acting
         # are allowed to overlap.
         plan_reply = chat(model, messages, think=True)
+        _accumulate_usage(usage, plan_reply.get("_usage"))
         messages.append(plan_reply["_raw"])
         if text := _plan_text(plan_reply):
             yield {"event": "plan", "text": text}
@@ -531,10 +568,15 @@ def run_events(request: str, model: str | None = None):
 
         nudges = 0
         for round_no in range(1, MAX_ROUNDS + 1):
+            last_round = round_no
             # ---- ACT on whatever calls are pending
             for call in pending:
                 name = call["function"]["name"]
-                arguments = call["function"]["arguments"]
+                # null == unset: strip before the referee and dispatch so
+                # a model that fills optional fields with null isn't
+                # bounced into a livelock (the _raw resent to the model is
+                # untouched)
+                arguments = without_nulls(call["function"]["arguments"])
                 yield {
                     "event": "call",
                     "round": round_no,
@@ -558,7 +600,8 @@ def run_events(request: str, model: str | None = None):
                         messages.append(tool_feedback(call, {"error": gap}))
                         continue
                     if arguments.get("feasible") is False:
-                        yield {"event": "final", "plan": arguments}
+                        yield {"event": "final", "plan": arguments,
+                               "usage": dict(usage), "rounds": last_round}
                         return
                     if gap := audit_weather_coverage(messages):
                         yield {"event": "audit_veto", "gap": gap}
@@ -568,7 +611,8 @@ def run_events(request: str, model: str | None = None):
                         yield {"event": "audit_veto", "gap": gap}
                         messages.append(tool_feedback(call, {"error": gap}))
                         continue
-                    yield {"event": "final", "plan": arguments}
+                    yield {"event": "final", "plan": arguments,
+                           "usage": dict(usage), "rounds": last_round}
                     return
 
                 result = dispatch(name, arguments)
@@ -577,6 +621,7 @@ def run_events(request: str, model: str | None = None):
 
             # ---- next model round (think off: plan is already in state)
             reply = chat(model, messages, think=False)
+            _accumulate_usage(usage, reply.get("_usage"))
             messages.append(reply["_raw"])
             pending = reply.get("tool_calls") or []
 
@@ -602,9 +647,12 @@ def run_events(request: str, model: str | None = None):
                 f"no submit_plan within {MAX_ROUNDS} rounds; last message: "
                 f"{_brief(messages[-1].get('content') or '', 200)}"
             ),
+            "usage": dict(usage),
+            "rounds": last_round,
         }
     except Exception as e:  # noqa: BLE001 -- stream boundary: fail as an event
-        yield {"event": "error", "message": f"{type(e).__name__}: {e}"}
+        yield {"event": "error", "message": f"{type(e).__name__}: {e}",
+               "usage": dict(usage), "rounds": last_round}
 
 
 def run(request: str, model: str | None = None, verbose: bool = True) -> dict:

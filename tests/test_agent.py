@@ -7,7 +7,7 @@ behavioral claim per test, no network, no model.
 
 import json
 
-from dog_walker.agent import (audit_feasibility, audit_terrain_coverage, audit_weather_coverage, validate_call)
+from dog_walker.agent import (audit_feasibility, audit_terrain_coverage, audit_weather_coverage, validate_call, without_nulls)
 
 # ---------------------------------------------------------------------
 # validate_call: the referee
@@ -241,6 +241,23 @@ def test_oversized_buffer_is_bounced():
               "walk_minutes": 60, "buffer_minutes": 90}]
     error = validate_call("optimize_route", {"stops": stops})
     assert "buffer_minutes" in error and "90" in error
+
+
+def test_null_optional_field_is_stripped_not_bounced():
+    # a model that fills an unset optional with null (measured: qwen3-8b)
+    # must not livelock -- null == omitted, so the call is legal
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "Rex", "lat": 0.0, "lon": 0.1, "walk_minutes": 30,
+              "max_relief_m": None, "buffer_minutes": None}]
+    cleaned = without_nulls({"stops": stops})
+    assert "max_relief_m" not in cleaned["stops"][1]
+    assert "buffer_minutes" not in cleaned["stops"][1]
+    assert validate_call("optimize_route", cleaned) is None
+
+
+def test_without_nulls_keeps_real_values():
+    kept = without_nulls({"a": 0, "b": False, "c": None, "d": [{"e": None, "f": 1}]})
+    assert kept == {"a": 0, "b": False, "d": [{"f": 1}]}
 
 
 def test_feasibility_oracle_vetoes_rosy_plan_over_infeasible_route():
