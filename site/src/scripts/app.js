@@ -35,6 +35,7 @@ const el = {
   form: document.getElementById("custom-form"),
   petRows: document.getElementById("pet-rows"),
   addPet: document.getElementById("add-pet"),
+  suggested: document.getElementById("suggested-start"),
   run: document.getElementById("run"),
   runTitle: document.getElementById("run-title"),
   trace: document.getElementById("trace"),
@@ -125,6 +126,13 @@ function petRow() {
         <option value="60">60 min</option>
       </select>
     </label>
+    <label class="windowlabel">Walk window
+      <select name="pet_window" title="when this dog should be walked">
+        <option value="any" selected>any time</option>
+        <option value="morning">morning</option>
+        <option value="afternoon">afternoon</option>
+      </select>
+    </label>
     <label>Prep min
       <input name="pet_buffer" type="number" min="0" max="60" step="5"
         value="0" size="3" title="extra minutes: elevators, feeding, parking" />
@@ -141,13 +149,6 @@ function petRow() {
     <button type="button" class="petremove" aria-label="remove this dog"
       title="remove this dog">&times;</button>
     <div class="petextra">
-      <label>Walk window
-        <select name="pet_window" title="when this dog should be walked">
-          <option value="any" selected>any time</option>
-          <option value="morning">morning</option>
-          <option value="afternoon">afternoon</option>
-        </select>
-      </label>
       <label class="hilllabel">Hill tolerance
         <input name="pet_hill" type="range" min="0" max="3" step="1"
           value="3" class="hillslider"
@@ -162,6 +163,8 @@ function petRow() {
   wireBand(row);
   wireHill(row);
   row.querySelector(".petremove").addEventListener("click", removePet);
+  row.querySelector('[name="pet_window"]')
+    .addEventListener("change", updateSuggestedStart);
   return row;
 }
 
@@ -213,15 +216,42 @@ function wireBand(row) {
 
 function removePet(e) {
   // always leave at least one dog on the form
-  if (el.petRows.children.length > 1) e.target.closest(".petrow").remove();
+  if (el.petRows.children.length > 1) {
+    e.target.closest(".petrow").remove();
+    updateSuggestedStart();
+  }
 }
 
 function addPet() {
   if (el.petRows.children.length < 6) el.petRows.appendChild(petRow());
 }
 
+// The start time isn't a user-owned field: the walk windows suggest it,
+// and the solver sets the real departure (which the plan then shows).
+// Morning walks begin at 8:00, afternoon at noon; an all-any roster has
+// no constraint, so a plain 9:00 default.
+function suggestedStart(windows) {
+  if (windows.includes("morning")) return "08:00";
+  if (windows.includes("afternoon")) return "12:00";
+  return "09:00";
+}
+
+function currentWindows() {
+  return [...el.petRows.querySelectorAll('[name="pet_window"]')]
+    .map(readValue);
+}
+
+function readValue(select) {
+  return select.value;
+}
+
+function updateSuggestedStart() {
+  if (el.suggested) el.suggested.textContent = suggestedStart(currentWindows());
+}
+
 el.addPet.addEventListener("click", addPet);
 addPet(); // start with one row
+updateSuggestedStart();
 
 el.form.addEventListener("submit", submitCustom);
 
@@ -260,7 +290,9 @@ function submitCustom(e) {
   }
   runPlan({
     start_address: data.get("start_address"),
-    start_time: data.get("start_time"),
+    // derived, not user-owned: the windows suggest it, the solver
+    // overrides it whenever any dog has a walk window
+    start_time: suggestedStart(windows),
     pets,
     model: chosenModel(),
   });

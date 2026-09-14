@@ -61,11 +61,10 @@
                 <input name="start_address" required minlength="4" maxlength="120"
                   placeholder="Wrigley Field, Chicago" />
               </label>
-              <label>Leave at
-                <input name="start_time" required pattern="[0-2][0-9]:[0-5][0-9]"
-                  value="09:00" size="6" />
-                <span class="fieldhint">the walker picks the time instead
-                  if any dog has a walk window</span>
+              <label>Suggested start
+                <output id="suggested-start" class="suggest-readout">09:00</output>
+                <span class="fieldhint">flexible &mdash; the walker sets the
+                  real time from the dogs' walk windows and route</span>
               </label>
             </div>
             <div id="pet-rows"></div>
@@ -269,7 +268,14 @@
   .checklabel { flex-direction: row; align-items: center; gap: 0.35rem; }
   .checklabel input { margin: 0; }
   .fieldhint { color: var(--muted); font-size: 0.75rem; font-weight: 400;
-    margin-top: 0.15rem; }
+    margin-top: 0.15rem; max-width: 20rem; }
+  /* derived, non-editable suggested start -- reads as a value, not a field */
+  .suggest-readout {
+    font-variant-numeric: tabular-nums; font-weight: 600;
+    color: var(--ink); font-size: 1rem; padding: 0.35rem 0;
+  }
+  /* walk window sits in the primary row now; keep the select compact */
+  .windowlabel select { min-width: 7.5rem; }
   .infeasible-banner {
     grid-column: 1 / -1;
     background: #fbeae6; color: var(--danger);
