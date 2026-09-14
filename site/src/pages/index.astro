@@ -32,9 +32,10 @@
     <header class="masthead">
       <h1>Watch an agent plan dog walks</h1>
       <p class="standfirst">
-        A small language model with three tools: an address lookup, a
-        route optimizer, and a weather service that returns
-        deterministic safety verdicts. Below, you can watch it work
+        A small language model with four tools: an address lookup, a
+        route optimizer, a weather service, and a terrain check &mdash;
+        all returning deterministic verdicts it must relay, not invent.
+        Below, you can watch it work
         &mdash; every tool call, every validation bounce, every audit
         veto, streamed live. The interesting part isn't that it works;
         it's the machinery that keeps a small model
@@ -128,10 +129,16 @@
             for a place, date, and time window (Open-Meteo), reduced
             in code to a deterministic verdict: OK, CAUTION, SHORTEN,
             or DO&nbsp;NOT&nbsp;WALK.</li>
+          <li><strong>check_terrain</strong> &mdash; samples elevation
+            around a dog's home (Open-Meteo) and scores the hilliness
+            against that dog's tolerance &mdash; for dogs that can't
+            take steep ground.</li>
           <li><strong>optimize_route</strong> &mdash; real
             street-walking distances (OpenRouteService) fed to a
             route-ordering solver (OR-Tools), returning the visiting
-            order, each dog's walk interval, and the map geometry.</li>
+            order, each dog's walk interval, and the map geometry. With
+            medication deadlines it solves for a time that meets them,
+            or reports honestly that no order can.</li>
           <li><strong>submit_plan</strong> &mdash; the finish line: a
             tool with no implementation, whose schema-validated
             arguments are the plan itself.</li>
@@ -232,8 +239,20 @@
     font: inherit; padding: 0.35rem 0.5rem;
     border: 1px solid var(--hairline); border-radius: 7px; background: #fff;
   }
-  .petrow { display: flex; gap: 0.6rem; align-items: end; flex-wrap: wrap; margin: 0.4rem 0; }
+  .petrow { display: flex; gap: 0.6rem; align-items: end; flex-wrap: wrap;
+    margin: 0.4rem 0 0.9rem; padding-bottom: 0.6rem;
+    border-bottom: 1px dashed var(--hairline); }
   .petrow button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 1.1rem; }
+  /* optional per-dog fields on a second, quieter line */
+  .petextra { flex-basis: 100%; display: flex; gap: 0.6rem;
+    flex-wrap: wrap; margin-top: 0.2rem; }
+  .petextra label { color: var(--muted); font-size: 0.78rem; }
+  .infeasible-banner {
+    grid-column: 1 / -1;
+    background: #fbeae6; color: var(--danger);
+    border: 1px solid var(--danger); border-radius: 10px;
+    padding: 0.7rem 1rem; font-weight: 700;
+  }
   /* dual-thumb comfort band: two overlapping range inputs on one
      blue-to-red gradient track */
   .band {

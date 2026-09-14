@@ -138,7 +138,22 @@ function petRow() {
       </span>
       <span class="bandvals">20°F – 84°F</span>
     </label>
-    <button type="button" title="remove">&times;</button>`;
+    <button type="button" title="remove">&times;</button>
+    <div class="petextra">
+      <label>Meds by
+        <input name="pet_med_deadline" type="time"
+          title="this dog must be reached to give medication by this time" />
+      </label>
+      <label>Med min
+        <input name="pet_med_minutes" type="number" min="0" max="30" step="5"
+          value="0" size="3" title="minutes to administer medication" />
+      </label>
+      <label>Max hill (m)
+        <input name="pet_max_relief" type="number" min="1" max="2000" step="5"
+          placeholder="none" size="4"
+          title="hill tolerance in metres of relief; blank = no limit" />
+      </label>
+    </div>`;
   wireBand(row);
   row.querySelector("button").addEventListener("click", removePet);
   return row;
@@ -194,17 +209,28 @@ function submitCustom(e) {
   const buffers = data.getAll("pet_buffer");
   const bandMins = data.getAll("pet_band_min");
   const bandMaxs = data.getAll("pet_band_max");
+  const medDeadlines = data.getAll("pet_med_deadline");
+  const medMinutes = data.getAll("pet_med_minutes");
+  const maxReliefs = data.getAll("pet_max_relief");
   for (let i = 0; i < names.length; i++) {
     const a = parseInt(bandMins[i] || "20", 10);
     const b = parseInt(bandMaxs[i] || "84", 10);
-    pets.push({
+    const pet = {
       name: names[i],
       address: addresses[i],
       walk_minutes: parseInt(minutes[i], 10),
       buffer_minutes: parseInt(buffers[i] || "0", 10),
       comfort_min_f: Math.min(a, b),
       comfort_max_f: Math.max(a, b),
-    });
+    };
+    // optional fields: only send when the user actually set them
+    if (medDeadlines[i]) {
+      pet.med_deadline = medDeadlines[i];
+      const mm = parseInt(medMinutes[i] || "0", 10);
+      if (mm) pet.med_minutes = mm;
+    }
+    if (maxReliefs[i]) pet.max_relief_m = parseInt(maxReliefs[i], 10);
+    pets.push(pet);
   }
   runPlan({
     start_address: data.get("start_address"),
@@ -370,6 +396,14 @@ function renderResult(plan) {
   const seq = visitSequence();
 
   el.verdicts.innerHTML = "";
+  if (plan.feasible === false) {
+    const banner = document.createElement("div");
+    banner.className = "infeasible-banner";
+    banner.textContent =
+      "This plan is not feasible — a medication deadline can't be met. " +
+      "See the advice below.";
+    el.verdicts.appendChild(banner);
+  }
   for (const w of plan.walks || []) {
     const card = document.createElement("div");
     card.className = `card verdict-card bl-${w.verdict}`;
