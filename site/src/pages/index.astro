@@ -255,6 +255,8 @@
     color: var(--muted); cursor: pointer; font-size: 1.1rem;
   }
   .petremove:hover { background: #fbeae6; color: var(--danger); }
+  /* nothing to remove when there's a single dog -- hide the no-op x */
+  .petrow:only-child .petremove { display: none; }
   /* optional per-dog attributes on a second, quieter line -- three
      independent controls, separated so none looks like it modifies
      its neighbour */
