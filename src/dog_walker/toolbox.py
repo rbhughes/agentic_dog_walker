@@ -594,19 +594,23 @@ def _solve_order(matrix: list[list[int]]) -> list[int]:
 def _solve_order_timed(
     matrix: list[list[int]],
     service_min: list[int],
-    deadline_min: list[int | None],
+    earliest_min: list[int | None],
+    latest_min: list[int | None],
     speed_m_per_min: float,
 ) -> list[int] | None:
-    """Like _solve_order, but honors per-stop deadlines (medication
-    urgency). Adds an OR-Tools time dimension: cumulative time at a
-    node is the walker's ARRIVAL there, and a deadline caps it. Among
-    all deadline-satisfying orders it still minimizes distance.
-    Returns None when NO order can meet every deadline -- real,
-    checkable infeasibility, not a distance-order artifact.
+    """Like _solve_order, but honors per-stop ARRIVAL windows (walk
+    windows: morning = arrive by noon, afternoon = arrive at/after
+    noon). Adds an OR-Tools time dimension: cumulative time at a node
+    is the walker's arrival there, bounded below/above. Among all
+    window-satisfying orders it still minimizes distance. Returns None
+    when NO order can satisfy every window -- real, checkable
+    infeasibility, not a distance-order artifact.
 
-    service_min[i]  minutes the walker spends at stop i before leaving
-                    (buffer + meds + walk); 0 at the depot.
-    deadline_min[i] latest arrival at i in minutes-from-start, or None.
+    service_min[i]   minutes the walker spends at stop i before leaving
+                     (buffer + meds + walk); 0 at the depot.
+    earliest_min[i]  earliest arrival at i (afternoon lower bound), or None.
+    latest_min[i]    latest arrival at i (morning upper bound), or None.
+    No waiting (slack 0): a window is satisfied by ORDERING alone.
     """
     from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
@@ -628,9 +632,12 @@ def _solve_order_timed(
     time_idx = routing.RegisterTransitCallback(time_cb)
     routing.AddDimension(time_idx, 0, 24 * 60, True, "Time")  # fixed start = 0
     time_dim = routing.GetDimensionOrDie("Time")
-    for node, deadline in enumerate(deadline_min):
-        if deadline is not None:
-            time_dim.CumulVar(manager.NodeToIndex(node)).SetMax(deadline)
+    for node in range(n):
+        cumul = time_dim.CumulVar(manager.NodeToIndex(node))
+        if latest_min[node] is not None:
+            cumul.SetMax(latest_min[node])
+        if earliest_min[node] is not None:
+            cumul.SetMin(earliest_min[node])
 
     params = pywrapcp.DefaultRoutingSearchParameters()
     params.first_solution_strategy = (
@@ -669,6 +676,9 @@ def _street_geometry(coords_in_order: list[tuple[float, float]]) -> dict | None:
 
 
 WALK_DURATIONS = (20, 30, 60)  # the products a dog walker actually sells
+WALK_WINDOWS = ("any", "morning", "afternoon")  # how walkers really schedule
+NOON_MIN = 12 * 60             # the morning/afternoon boundary, absolute minutes
+MED_HANDLING_MIN = 10          # meds are a boolean; if set, the stop takes longer
 
 
 def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str, Any]:
@@ -697,10 +707,10 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
     if not 2 <= len(stops) <= MAX_STOPS:
         return {"error": f"need 2-{MAX_STOPS} stops, got {len(stops)}"}
 
-    # validate the deadline/start_time contract BEFORE any network work
-    has_deadlines = any(s.get("med_deadline") for s in stops)
-    if has_deadlines and start_time is None:
-        return {"error": "medication deadlines require start_time"}
+    # validate the walk-window / start_time contract BEFORE network work
+    windowed = [s for s in stops if s.get("walk_window", "any") != "any"]
+    if windowed and start_time is None:
+        return {"error": "morning/afternoon walk windows require start_time"}
 
     coords = [(float(s["lat"]), float(s["lon"])) for s in stops]
     matrix, real_streets = _walking_matrix(coords)
@@ -709,32 +719,40 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
         h, m = map(int, start_time.split(":"))
         return h * 60 + m
 
-    # medication deadlines (urgency) turn the plain TSP into a
-    # time-windowed solve; infeasibility is a real, honest outcome
-    if has_deadlines:
+    # walk windows (morning = arrive by noon, afternoon = arrive at/after
+    # noon) turn the plain TSP into a time-windowed solve; when too many
+    # windows can't be arranged, infeasibility is a real, honest outcome
+    if windowed:
+        noon = NOON_MIN - start_min()  # noon in minutes-from-start
         service = [
             int(s.get("buffer_minutes", 0))
-            + int(s.get("med_minutes", 0))
+            + (MED_HANDLING_MIN if s.get("needs_meds") else 0)
             + int(s.get("walk_minutes", 0))
             for s in stops
         ]
-        deadlines: list[int | None] = []
+        # a walk_window is about when the WALK starts, and walk_start =
+        # arrival + buffer + meds. Bound arrival so walk_start lands in
+        # the right half of the day.
+        earliest: list[int | None] = []
+        latest: list[int | None] = []
         for s in stops:
-            d = s.get("med_deadline")
-            deadlines.append(
-                (int(d[:2]) * 60 + int(d[3:5])) - start_min() if d else None
-            )
-        order = _solve_order_timed(matrix, service, deadlines, WALK_SPEED_M_PER_MIN)
+            w = s.get("walk_window", "any")
+            pre = int(s.get("buffer_minutes", 0)) + (
+                MED_HANDLING_MIN if s.get("needs_meds") else 0)
+            earliest.append(noon - pre if w == "afternoon" else None)
+            latest.append(noon - pre if w == "morning" else None)
+        order = _solve_order_timed(
+            matrix, service, earliest, latest, WALK_SPEED_M_PER_MIN
+        )
         if order is None:
             due = [
-                {"stop": s["name"], "med_deadline": s["med_deadline"]}
-                for s in stops
-                if s.get("med_deadline")
+                {"stop": s["name"], "walk_window": s["walk_window"]}
+                for s in windowed
             ]
             return {
                 "feasible": False,
-                "reason": "no visiting order meets every medication deadline",
-                "deadlines": due,
+                "reason": "no visiting order fits every morning/afternoon window",
+                "windows": due,
                 "uses_real_streets": real_streets,
             }
     else:
@@ -772,7 +790,7 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
         arrive = t
         walk = int(stops[b].get("walk_minutes", 0))
         buffer = int(stops[b].get("buffer_minutes", 0))
-        meds = int(stops[b].get("med_minutes", 0))
+        meds = MED_HANDLING_MIN if stops[b].get("needs_meds") else 0
         entry = {
             "stop": stops[b]["name"],
             "arrive": clock(arrive),
@@ -786,12 +804,15 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
             entry["buffer_minutes"] = buffer
         if meds:
             entry["med_minutes"] = meds
-        deadline = stops[b].get("med_deadline")
-        if deadline:
-            met = round(arrive) <= (int(deadline[:2]) * 60 + int(deadline[3:5])
-                                    - start_min())
-            entry["med_deadline"] = deadline
-            entry["deadline_met"] = met
+            entry["needs_meds"] = True
+        window = stops[b].get("walk_window", "any")
+        if window != "any" and start_time is not None:
+            noon = NOON_MIN - start_min()
+            walk_start_min = t + buffer + meds
+            met = (walk_start_min <= noon) if window == "morning" else (
+                walk_start_min >= noon)
+            entry["walk_window"] = window
+            entry["window_met"] = met
             all_met = all_met and met
         for key in ("comfort_min_f", "comfort_max_f", "max_relief_m"):
             if stops[b].get(key) is not None:
@@ -801,7 +822,7 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
 
     dog_min = sum(int(s.get("walk_minutes", 0)) for s in stops)
     buffer_min = sum(int(s.get("buffer_minutes", 0)) for s in stops)
-    med_min = sum(int(s.get("med_minutes", 0)) for s in stops)
+    med_min = sum(MED_HANDLING_MIN for s in stops if s.get("needs_meds"))
     return {
         "feasible": all_met,
         "order": [stops[i]["name"] for i in order],
@@ -873,20 +894,22 @@ OPTIMIZE_ROUTE_SCHEMA = {
                                     "relief; set it to require a terrain check"
                                 ),
                             },
-                            "med_deadline": {
-                                "type": "string",
+                            "needs_meds": {
+                                "type": "boolean",
                                 "description": (
-                                    "HH:MM: this dog needs medication and "
-                                    "must be REACHED by this time (urgency). "
-                                    "Requires start_time. May make the route "
-                                    "infeasible -- then feasible=false."
+                                    "true if this dog needs medication; the "
+                                    "stop then takes extra handling time"
                                 ),
                             },
-                            "med_minutes": {
-                                "type": "integer", "minimum": 0, "maximum": 30,
+                            "walk_window": {
+                                "type": "string",
+                                "enum": list(WALK_WINDOWS),
                                 "description": (
-                                    "extra handling minutes to administer "
-                                    "medication (difficulty)"
+                                    "when to walk this dog: any (default), "
+                                    "morning (reach by noon), or afternoon "
+                                    "(reach at/after noon). Requires "
+                                    "start_time; too many windows that can't "
+                                    "be arranged -> feasible=false."
                                 ),
                             },
                         },
@@ -899,7 +922,7 @@ OPTIMIZE_ROUTE_SCHEMA = {
                     "type": "string",
                     "description": (
                         "HH:MM; renders the timeline as clock times and "
-                        "anchors medication deadlines"
+                        "anchors morning/afternoon walk windows"
                     ),
                 },
             },

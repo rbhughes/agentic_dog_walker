@@ -140,23 +140,48 @@ function petRow() {
     </label>
     <button type="button" title="remove">&times;</button>
     <div class="petextra">
-      <label>Meds by
-        <input name="pet_med_deadline" type="time"
-          title="this dog must be reached to give medication by this time" />
+      <label class="checklabel">
+        <input name="pet_meds" type="checkbox"
+          title="this dog needs medication; the stop takes a little longer" />
+        Needs meds
       </label>
-      <label>Med min
-        <input name="pet_med_minutes" type="number" min="0" max="30" step="5"
-          value="0" size="3" title="minutes to administer medication" />
+      <label>When
+        <select name="pet_window" title="when to walk this dog">
+          <option value="any" selected>any time</option>
+          <option value="morning">morning</option>
+          <option value="afternoon">afternoon</option>
+        </select>
       </label>
-      <label>Max hill (m)
-        <input name="pet_max_relief" type="number" min="1" max="2000" step="5"
-          placeholder="none" size="4"
-          title="hill tolerance in metres of relief; blank = no limit" />
+      <label class="hilllabel">Hill tolerance
+        <input name="pet_hill" type="range" min="0" max="3" step="1"
+          value="3" class="hillslider"
+          title="how much hill this dog can handle" />
+        <span class="hillval">any terrain</span>
       </label>
     </div>`;
   wireBand(row);
+  wireHill(row);
   row.querySelector("button").addEventListener("click", removePet);
   return row;
+}
+
+// hill-tolerance slider -> (label, max_relief_m). Index 3 = "any
+// terrain": no limit, so no terrain check is required for that dog.
+const HILL_STOPS = [
+  ["flat only", 10],
+  ["gentle slopes", 30],
+  ["hilly OK", 80],
+  ["any terrain", null],
+];
+
+function wireHill(row) {
+  const slider = row.querySelector(".hillslider");
+  const label = row.querySelector(".hillval");
+  function sync() {
+    label.textContent = HILL_STOPS[parseInt(slider.value, 10)][0];
+  }
+  slider.addEventListener("input", sync);
+  sync();
 }
 
 function wireBand(row) {
@@ -209,9 +234,9 @@ function submitCustom(e) {
   const buffers = data.getAll("pet_buffer");
   const bandMins = data.getAll("pet_band_min");
   const bandMaxs = data.getAll("pet_band_max");
-  const medDeadlines = data.getAll("pet_med_deadline");
-  const medMinutes = data.getAll("pet_med_minutes");
-  const maxReliefs = data.getAll("pet_max_relief");
+  const windows = data.getAll("pet_window");
+  const hills = data.getAll("pet_hill");
+  const rows = [...el.petRows.querySelectorAll(".petrow")];
   for (let i = 0; i < names.length; i++) {
     const a = parseInt(bandMins[i] || "20", 10);
     const b = parseInt(bandMaxs[i] || "84", 10);
@@ -224,12 +249,12 @@ function submitCustom(e) {
       comfort_max_f: Math.max(a, b),
     };
     // optional fields: only send when the user actually set them
-    if (medDeadlines[i]) {
-      pet.med_deadline = medDeadlines[i];
-      const mm = parseInt(medMinutes[i] || "0", 10);
-      if (mm) pet.med_minutes = mm;
+    if (rows[i]?.querySelector('[name="pet_meds"]')?.checked) {
+      pet.needs_meds = true;
     }
-    if (maxReliefs[i]) pet.max_relief_m = parseInt(maxReliefs[i], 10);
+    if (windows[i] && windows[i] !== "any") pet.walk_window = windows[i];
+    const relief = HILL_STOPS[parseInt(hills[i] || "3", 10)][1];
+    if (relief !== null) pet.max_relief_m = relief;
     pets.push(pet);
   }
   runPlan({
@@ -400,8 +425,8 @@ function renderResult(plan) {
     const banner = document.createElement("div");
     banner.className = "infeasible-banner";
     banner.textContent =
-      "This plan is not feasible — a medication deadline can't be met. " +
-      "See the advice below.";
+      "This plan is not feasible — the morning/afternoon walk times " +
+      "can't all be arranged. See the advice below.";
     el.verdicts.appendChild(banner);
   }
   for (const w of plan.walks || []) {

@@ -245,7 +245,7 @@ def test_oversized_buffer_is_bounced():
 
 def test_feasibility_oracle_vetoes_rosy_plan_over_infeasible_route():
     msgs = [tool_result({"feasible": False,
-                         "reason": "no order meets every medication deadline"})]
+                         "reason": "no visiting order fits every morning/afternoon window"})]
     gap = audit_feasibility(msgs, {"feasible": True})
     assert gap and "infeasible" in gap
 

@@ -101,8 +101,8 @@ class Pet(BaseModel):
     buffer_minutes: int = Field(default=0, ge=0, le=60)
     comfort_min_f: int = Field(default=20, ge=-20, le=110)
     comfort_max_f: int = Field(default=84, ge=-20, le=110)
-    med_deadline: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
-    med_minutes: int = Field(default=0, ge=0, le=30)
+    needs_meds: bool = False
+    walk_window: Literal["any", "morning", "afternoon"] = "any"
     max_relief_m: int | None = Field(default=None, ge=1, le=2000)
 
     @model_validator(mode="after")

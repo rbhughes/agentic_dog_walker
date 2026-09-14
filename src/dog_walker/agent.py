@@ -91,10 +91,9 @@ SUBMIT_PLAN_SCHEMA = {
                 "feasible": {
                     "type": "boolean",
                     "description": (
-                        "false if the route cannot meet every medication "
-                        "deadline (optimize_route returned feasible=false "
-                        "or a timeline entry has deadline_met=false); "
-                        "explain in overall_advice"
+                        "false if the morning/afternoon walk windows "
+                        "cannot all be arranged (optimize_route returned "
+                        "feasible=false); explain in overall_advice"
                     ),
                 },
                 "route_summary": {"type": "string"},
@@ -277,16 +276,16 @@ def audit_feasibility(messages: list, plan: dict) -> str | None:
     route_feasible = bool(route.get("feasible", True))
     plan_feasible = plan.get("feasible")
     if not route_feasible and plan_feasible is not False:
-        reason = route.get("reason", "a medication deadline cannot be met")
+        reason = route.get("reason", "a walk window cannot be arranged")
         return (
             f"REJECTED: the route is infeasible -- {reason}. Submit with "
-            "feasible=false and say which deadline can't be met in "
+            "feasible=false and say which walk window can't be met in "
             "overall_advice."
         )
     if route_feasible and plan_feasible is False:
         return (
-            "REJECTED: the route IS feasible -- every medication deadline "
-            "is met. Submit with feasible=true."
+            "REJECTED: the route IS feasible -- every walk window is "
+            "arranged. Submit with feasible=true."
         )
     return None
 
@@ -502,11 +501,11 @@ def run_events(request: str, model: str | None = None):
                 "comfort_max_f if stated. Include each dog's stated "
                 "For any dog with a max_relief_m (hill tolerance), also "
                 "call check_terrain at that dog's location with its "
-                "max_relief_m. Include each dog's "
-                "buffer_minutes, comfort band, and any medication "
-                "deadline (med_deadline) and handling time (med_minutes) "
-                "in the optimize_route stops. If optimize_route returns "
-                "feasible=false, some medication deadline cannot be met: "
+                "max_relief_m. Include each dog's buffer_minutes, comfort "
+                "band, needs_meds (boolean; adds handling time), and "
+                "walk_window (any/morning/afternoon) in the optimize_route "
+                "stops. If optimize_route returns feasible=false, the "
+                "morning/afternoon windows cannot all be arranged: "
                 "submit_plan with feasible=false and explain. Otherwise "
                 "submit with feasible=true. Weather windows are whole "
                 "hours with an "
@@ -644,28 +643,27 @@ def run(request: str, model: str | None = None, verbose: bool = True) -> dict:
 
 DEMOS = {
     # exercises every per-dog parameter, and stays feasible:
-    # comfort band (Daisy), medication deadline + handling time (Daisy),
-    # buffer + hill tolerance / terrain check (Ziggy), plain dog (Rex)
+    # comfort band + meds + morning window (Daisy), buffer + hill
+    # tolerance / terrain check (Ziggy), plain dog (Rex)
     "full": (
         "Plan this morning's walks starting and ending at 21 W Chestnut "
         "St, Chicago. I leave at 09:00. "
         "Daisy is at Lincoln Park Zoo, Chicago, gets a 20 minute walk, is "
         "sensitive to cold so keep her comfortable between 45 and 95 F, "
-        "and needs medication by 10:30 which takes 10 minutes to give. "
+        "needs her medication given (adds a little time), and should be "
+        "walked in the morning. "
         "Ziggy is at Wrigley Field, Chicago, gets a 30 minute walk, needs "
         "15 minutes of prep time before the walk because of a slow "
-        "elevator, and can't handle hills -- keep it under 15 metres of "
-        "relief. "
+        "elevator, and can't handle hills -- keep it to gentle slopes. "
         "Rex is at 5218 N Clark St, Chicago, gets a 60 minute walk."
     ),
-    # medication deadlines that no route can meet -> feasible=false
+    # too many morning walks to fit before noon -> feasible=false
     "infeasible": (
         "Plan walks starting and ending at Millennium Park, Chicago. I "
-        "leave at 09:00. "
-        "Rex is at 5218 N Clark St, Chicago, gets a 30 minute walk and "
-        "needs medication by 09:15. "
-        "Daisy is at Lincoln Park Zoo, Chicago, gets a 20 minute walk and "
-        "needs medication by 09:20."
+        "leave at 09:00. Every one of these needs a MORNING walk: "
+        "Rex at 5218 N Clark St, Chicago (60 minutes); "
+        "Daisy at Lincoln Park Zoo, Chicago (60 minutes); "
+        "Ziggy at Wrigley Field, Chicago (60 minutes)."
     ),
 }
 
