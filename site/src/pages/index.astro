@@ -61,13 +61,14 @@
                 <input name="start_address" required minlength="4" maxlength="120"
                   placeholder="Wrigley Field, Chicago" />
               </label>
-              <label>Suggested start
-                <output id="suggested-start" class="suggest-readout">09:00</output>
-                <span class="fieldhint">flexible &mdash; the walker sets the
-                  real time from the dogs' walk windows and route</span>
-              </label>
             </div>
             <div id="pet-rows"></div>
+            <div class="startsummary">
+              <span class="summary-label">Suggested start</span>
+              <output id="suggested-start" class="suggest-readout">09:00</output>
+              <span class="fieldhint">flexible &mdash; derived from the dogs'
+                walk windows; the walker sets the real time from the route</span>
+            </div>
             <div class="formrow">
               <button type="button" id="add-pet">+ add dog</button>
               <button type="submit" class="primary">Plan the walks</button>
@@ -269,11 +270,17 @@
   .checklabel input { margin: 0; }
   .fieldhint { color: var(--muted); font-size: 0.75rem; font-weight: 400;
     margin-top: 0.15rem; max-width: 20rem; }
-  /* derived, non-editable suggested start -- reads as a value, not a field */
-  .suggest-readout {
-    font-variant-numeric: tabular-nums; font-weight: 600;
-    color: var(--ink); font-size: 1rem; padding: 0.35rem 0;
+  /* derived output, sitting BELOW the dogs that determine it */
+  .startsummary {
+    display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;
+    margin: 0.2rem 0 0.8rem;
   }
+  .summary-label { font-size: 0.85rem; color: var(--ink-2); }
+  .suggest-readout {
+    font-variant-numeric: tabular-nums; font-weight: 700;
+    color: var(--ink); font-size: 1.05rem;
+  }
+  .startsummary .fieldhint { margin-top: 0; }
   /* walk window sits in the primary row now; keep the select compact */
   .windowlabel select { min-width: 7.5rem; }
   .infeasible-banner {

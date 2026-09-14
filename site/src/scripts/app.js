@@ -119,18 +119,18 @@ function petRow() {
     <label>Dog <input name="pet_name" required maxlength="40" placeholder="Rex" /></label>
     <label>Address <input name="pet_address" required minlength="4" maxlength="120"
       placeholder="5218 N Clark St, Chicago" size="28" /></label>
-    <label>Walk
-      <select name="pet_minutes">
-        <option value="20">20 min</option>
-        <option value="30" selected>30 min</option>
-        <option value="60">60 min</option>
-      </select>
-    </label>
     <label class="windowlabel">Walk window
       <select name="pet_window" title="when this dog should be walked">
         <option value="any" selected>any time</option>
         <option value="morning">morning</option>
         <option value="afternoon">afternoon</option>
+      </select>
+    </label>
+    <label>Walk
+      <select name="pet_minutes">
+        <option value="20">20 min</option>
+        <option value="30" selected>30 min</option>
+        <option value="60">60 min</option>
       </select>
     </label>
     <label>Prep min
