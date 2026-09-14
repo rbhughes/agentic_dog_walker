@@ -138,15 +138,11 @@ function petRow() {
       </span>
       <span class="bandvals">20°F – 84°F</span>
     </label>
-    <button type="button" title="remove">&times;</button>
+    <button type="button" class="petremove" aria-label="remove this dog"
+      title="remove this dog">&times;</button>
     <div class="petextra">
-      <label class="checklabel">
-        <input name="pet_meds" type="checkbox"
-          title="this dog needs medication; the stop takes a little longer" />
-        Needs meds
-      </label>
-      <label>When
-        <select name="pet_window" title="when to walk this dog">
+      <label>Walk window
+        <select name="pet_window" title="when this dog should be walked">
           <option value="any" selected>any time</option>
           <option value="morning">morning</option>
           <option value="afternoon">afternoon</option>
@@ -158,10 +154,14 @@ function petRow() {
           title="how much hill this dog can handle" />
         <span class="hillval">any terrain</span>
       </label>
+      <label class="checklabel" title="this dog needs medication; the stop takes a little longer">
+        <input name="pet_meds" type="checkbox" />
+        Needs meds
+      </label>
     </div>`;
   wireBand(row);
   wireHill(row);
-  row.querySelector("button").addEventListener("click", removePet);
+  row.querySelector(".petremove").addEventListener("click", removePet);
   return row;
 }
 
@@ -212,7 +212,8 @@ function wireBand(row) {
 }
 
 function removePet(e) {
-  e.target.closest(".petrow").remove();
+  // always leave at least one dog on the form
+  if (el.petRows.children.length > 1) e.target.closest(".petrow").remove();
 }
 
 function addPet() {
