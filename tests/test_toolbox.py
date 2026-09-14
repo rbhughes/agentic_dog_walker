@@ -485,36 +485,88 @@ def test_needs_meds_adds_handling_time(monkeypatch):
 
 
 def test_morning_windows_that_fit_are_feasible(monkeypatch):
-    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
-    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
-    stops = med_stops()
-    for s in stops[1:]:
-        s["walk_window"] = "morning"     # short walks from 09:00 fit before noon
-        s["walk_minutes"] = 20
-    r = optimize_route(stops, start_time="09:00")
-    assert r["feasible"] is True
-    assert all(e["window_met"] for e in r["timeline"] if e.get("walk_window"))
-
-
-def test_too_many_morning_walks_are_infeasible(monkeypatch):
-    # from 11:00 there is only one hour of morning; three 60-min walks
-    # cannot all START before noon in any order
+    # start is flexible: the walker leaves early enough that three short
+    # morning walks all START before noon -- no caller start_time needed
     monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
     monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
     stops = med_stops()
     for s in stops[1:]:
         s["walk_window"] = "morning"
-        s["walk_minutes"] = 60
-    r = optimize_route(stops, start_time="11:00")
+        s["walk_minutes"] = 20
+    r = optimize_route(stops)
+    assert r["feasible"] is True
+    assert all(e["window_met"] for e in r["timeline"] if e.get("walk_window"))
+
+
+def line_matrix_of(n, step=833):
+    """A monkeypatch stand-in for _walking_matrix sized to n stops:
+    833m between neighbours on a line (= 10 min at 5 km/h)."""
+    matrix = [[abs(i - j) * step for j in range(n)] for i in range(n)]
+
+    def fake_matrix(coords):
+        return matrix, False
+
+    return fake_matrix
+
+
+def test_lone_afternoon_walk_starts_at_noon(monkeypatch):
+    # a single afternoon dog is never walked in the morning: the walker
+    # simply leaves later, so the walk starts right at noon
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(2))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = med_stops()[:2]  # home + Daisy only
+    stops[1]["walk_window"] = "afternoon"
+    r = optimize_route(stops)
+    assert r["feasible"] is True
+    daisy = next(e for e in r["timeline"] if e["stop"] == "Daisy")
+    assert daisy["walk_start"] == "12:00"
+
+
+def test_morning_and_afternoon_cluster_across_noon(monkeypatch):
+    # one AM + one PM dog become a single outing: the walker picks a
+    # departure that puts the morning walk before noon and the afternoon
+    # walk at/after noon, with no loitering in between
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(3))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = med_stops()[:3]  # home + Daisy(20) + Rex(60)
+    stops[1]["walk_window"] = "morning"
+    stops[2]["walk_window"] = "afternoon"
+    r = optimize_route(stops)
+    assert r["feasible"] is True
+    by = {e["stop"]: e for e in r["timeline"] if e.get("walk_window")}
+    assert by["Daisy"]["walk_start"] < "12:00"   # morning
+    assert by["Rex"]["walk_start"] >= "12:00"     # afternoon
+    assert all(e["window_met"] for e in by.values())
+
+
+def test_too_many_morning_walks_are_infeasible(monkeypatch):
+    # even leaving at 8:00, five back-to-back 60-min morning walks cannot
+    # all START before noon in any order -- honest infeasibility
+    n = 6
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(n))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0}]
+    for i in range(1, n):
+        stops.append({
+            "name": f"d{i}", "lat": 0.0, "lon": i * 0.01,
+            "walk_minutes": 60, "walk_window": "morning",
+        })
+    r = optimize_route(stops)
     assert r["feasible"] is False
     assert "window" in r["reason"]
     assert "timeline" not in r
 
 
-def test_walk_window_without_start_time_is_an_error():
-    stops = med_stops()
+def test_walk_window_picks_its_own_start(monkeypatch):
+    # a caller start_time is IGNORED once any dog has a window: the
+    # solver returns the departure it chose
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(2))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = med_stops()[:2]
     stops[1]["walk_window"] = "morning"
-    assert "start_time" in optimize_route(stops)["error"]
+    r = optimize_route(stops, start_time="15:00")  # would be afternoon
+    assert r["feasible"] is True
+    assert r["start_time"] < "12:00"  # walker left in the morning instead
 
 
 # ---------------------------------------------------------------------

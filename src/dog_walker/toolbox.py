@@ -597,20 +597,30 @@ def _solve_order_timed(
     earliest_min: list[int | None],
     latest_min: list[int | None],
     speed_m_per_min: float,
-) -> list[int] | None:
-    """Like _solve_order, but honors per-stop ARRIVAL windows (walk
-    windows: morning = arrive by noon, afternoon = arrive at/after
-    noon). Adds an OR-Tools time dimension: cumulative time at a node
-    is the walker's arrival there, bounded below/above. Among all
-    window-satisfying orders it still minimizes distance. Returns None
-    when NO order can satisfy every window -- real, checkable
-    infeasibility, not a distance-order artifact.
+) -> tuple[list[int], int] | None:
+    """Like _solve_order, but honors per-stop ARRIVAL windows AND lets
+    the walker choose when to leave. Cumulative time at a node is the
+    walker's arrival there in ABSOLUTE minutes-since-midnight; the depot
+    start cumul (the departure time) is a free variable the solver picks,
+    not a fixed input. That models how a walker actually works: start
+    times are flexible, and the walker slides the whole single outing
+    earlier or later so morning walks land before noon and afternoon
+    walks after it -- one continuous trip across the boundary, not two.
+
+    Among all window-satisfying orders it still minimizes distance, then a
+    finalizer minimizes the departure so the reported schedule is the
+    earliest feasible cluster (a lone afternoon dog starts at noon, not at
+    dawn with three hours of loitering). Returns (order, departure_min) --
+    departure_min is the chosen leave time in absolute minutes -- or None
+    when NO (departure, order) satisfies every window: real, checkable
+    infeasibility.
 
     service_min[i]   minutes the walker spends at stop i before leaving
                      (buffer + meds + walk); 0 at the depot.
-    earliest_min[i]  earliest arrival at i (afternoon lower bound), or None.
-    latest_min[i]    latest arrival at i (morning upper bound), or None.
-    No waiting (slack 0): a window is satisfied by ORDERING alone.
+    earliest_min[i]  earliest arrival at i (absolute), or None.
+    latest_min[i]    latest arrival at i (absolute), or None.
+    No waiting (slack 0): the walker doesn't loiter, so a window is
+    satisfied by ORDERING plus the chosen departure, never by idling.
     """
     from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 
@@ -630,7 +640,9 @@ def _solve_order_timed(
         return travel + service_min[a]  # leaving a costs its service
 
     time_idx = routing.RegisterTransitCallback(time_cb)
-    routing.AddDimension(time_idx, 0, 24 * 60, True, "Time")  # fixed start = 0
+    # slack 0 (no loitering), horizon = one day, start cumul FREE: the
+    # depot departure floats so the solver can position the outing.
+    routing.AddDimension(time_idx, 0, 24 * 60, False, "Time")
     time_dim = routing.GetDimensionOrDie("Time")
     for node in range(n):
         cumul = time_dim.CumulVar(manager.NodeToIndex(node))
@@ -638,6 +650,8 @@ def _solve_order_timed(
             cumul.SetMax(latest_min[node])
         if earliest_min[node] is not None:
             cumul.SetMin(earliest_min[node])
+    # earliest feasible departure -> the naturally-clustered schedule
+    routing.AddVariableMinimizedByFinalizer(time_dim.CumulVar(routing.Start(0)))
 
     params = pywrapcp.DefaultRoutingSearchParameters()
     params.first_solution_strategy = (
@@ -651,7 +665,8 @@ def _solve_order_timed(
     while not routing.IsEnd(index):
         order.append(manager.IndexToNode(index))
         index = solution.Value(routing.NextVar(index))
-    return order
+    departure = solution.Value(time_dim.CumulVar(routing.Start(0)))
+    return order, departure
 
 
 def _street_geometry(coords_in_order: list[tuple[float, float]]) -> dict | None:
@@ -677,6 +692,7 @@ def _street_geometry(coords_in_order: list[tuple[float, float]]) -> dict | None:
 
 WALK_DURATIONS = (20, 30, 60)  # the products a dog walker actually sells
 WALK_WINDOWS = ("any", "morning", "afternoon")  # how walkers really schedule
+MORNING_START_MIN = 8 * 60     # earliest a morning walk may start (8:00am)
 NOON_MIN = 12 * 60             # the morning/afternoon boundary, absolute minutes
 MED_HANDLING_MIN = 10          # meds are a boolean; if set, the stop takes longer
 
@@ -702,28 +718,26 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
     time-window constraints consume.
 
     start_time ("HH:MM", optional) renders the timeline as clock
-    times; otherwise it's minutes-from-start.
+    times; otherwise it's minutes-from-start. When any dog has a
+    morning/afternoon walk_window, start_time is IGNORED and the walker
+    picks the departure that packs every window into one outing -- the
+    chosen start comes back in the result's "start_time".
     """
     if not 2 <= len(stops) <= MAX_STOPS:
         return {"error": f"need 2-{MAX_STOPS} stops, got {len(stops)}"}
 
-    # validate the walk-window / start_time contract BEFORE network work
     windowed = [s for s in stops if s.get("walk_window", "any") != "any"]
-    if windowed and start_time is None:
-        return {"error": "morning/afternoon walk windows require start_time"}
 
     coords = [(float(s["lat"]), float(s["lon"])) for s in stops]
     matrix, real_streets = _walking_matrix(coords)
 
-    def start_min() -> int:
-        h, m = map(int, start_time.split(":"))
-        return h * 60 + m
-
-    # walk windows (morning = arrive by noon, afternoon = arrive at/after
-    # noon) turn the plain TSP into a time-windowed solve; when too many
-    # windows can't be arranged, infeasibility is a real, honest outcome
+    # walk windows (morning = walk starts 8:00am-noon, afternoon = walk
+    # starts at/after noon) turn the plain TSP into a time-windowed solve
+    # WHERE THE WALKER CHOOSES THE DEPARTURE: start times are flexible, so
+    # the solver slides one clustered outing across the noon boundary.
+    # When no departure+order fits every window, infeasibility is honest.
+    # A solver-chosen departure overrides any caller start_time here.
     if windowed:
-        noon = NOON_MIN - start_min()  # noon in minutes-from-start
         service = [
             int(s.get("buffer_minutes", 0))
             + (MED_HANDLING_MIN if s.get("needs_meds") else 0)
@@ -731,32 +745,45 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
             for s in stops
         ]
         # a walk_window is about when the WALK starts, and walk_start =
-        # arrival + buffer + meds. Bound arrival so walk_start lands in
-        # the right half of the day.
+        # arrival + buffer + meds. Bound arrival (absolute minutes) so
+        # walk_start lands in the right half of the day.
         earliest: list[int | None] = []
         latest: list[int | None] = []
         for s in stops:
             w = s.get("walk_window", "any")
             pre = int(s.get("buffer_minutes", 0)) + (
                 MED_HANDLING_MIN if s.get("needs_meds") else 0)
-            earliest.append(noon - pre if w == "afternoon" else None)
-            latest.append(noon - pre if w == "morning" else None)
-        order = _solve_order_timed(
+            if w == "morning":
+                earliest.append(MORNING_START_MIN - pre)  # walk_start >= 8:00
+                latest.append(NOON_MIN - pre)              # walk_start <= noon
+            elif w == "afternoon":
+                earliest.append(NOON_MIN - pre)            # walk_start >= noon
+                latest.append(None)
+            else:
+                earliest.append(None)
+                latest.append(None)
+        solved = _solve_order_timed(
             matrix, service, earliest, latest, WALK_SPEED_M_PER_MIN
         )
-        if order is None:
+        if solved is None:
             due = [
                 {"stop": s["name"], "walk_window": s["walk_window"]}
                 for s in windowed
             ]
             return {
                 "feasible": False,
-                "reason": "no visiting order fits every morning/afternoon window",
+                "reason": "no single outing fits every morning/afternoon window",
                 "windows": due,
                 "uses_real_streets": real_streets,
             }
+        order, departure = solved
+        start_time = f"{departure // 60 % 24:02d}:{departure % 60:02d}"
     else:
         order = _solve_order(matrix)
+
+    def start_min() -> int:
+        h, m = map(int, start_time.split(":"))
+        return h * 60 + m
 
     loop = order + [0]  # explicit return home
     legs = []
@@ -783,7 +810,12 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
     all_met = True
     timeline, t = [], 0.0
     for pos, (a, b) in enumerate(zip(loop, loop[1:])):
-        t += matrix[a][b] / WALK_SPEED_M_PER_MIN
+        leg = matrix[a][b] / WALK_SPEED_M_PER_MIN
+        # windowed routes are scheduled by the solver in whole minutes;
+        # round transit the same way so the displayed clock times match
+        # the arrival bounds it enforced (else 9.996 min reads as 11:59
+        # for a walk the solver placed at 12:00).
+        t += round(leg) if windowed else leg
         if b == 0:
             timeline.append({"stop": stops[0]["name"], "arrive": clock(t)})
             break
@@ -826,6 +858,7 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
     return {
         "feasible": all_met,
         "order": [stops[i]["name"] for i in order],
+        "start_time": start_time,
         "legs": legs,
         "timeline": timeline,
         "total_walk_meters": total_m,
@@ -906,10 +939,11 @@ OPTIMIZE_ROUTE_SCHEMA = {
                                 "enum": list(WALK_WINDOWS),
                                 "description": (
                                     "when to walk this dog: any (default), "
-                                    "morning (reach by noon), or afternoon "
-                                    "(reach at/after noon). Requires "
-                                    "start_time; too many windows that can't "
-                                    "be arranged -> feasible=false."
+                                    "morning (walk starts 8:00am-noon), or "
+                                    "afternoon (walk starts at/after noon). "
+                                    "The walker chooses the departure to fit "
+                                    "them all in one outing; windows that "
+                                    "can't be arranged -> feasible=false."
                                 ),
                             },
                         },
@@ -921,8 +955,10 @@ OPTIMIZE_ROUTE_SCHEMA = {
                 "start_time": {
                     "type": "string",
                     "description": (
-                        "HH:MM; renders the timeline as clock times and "
-                        "anchors morning/afternoon walk windows"
+                        "HH:MM; renders the timeline as clock times. "
+                        "Ignored when any dog has a morning/afternoon "
+                        "window -- the walker then chooses the departure "
+                        "(returned as start_time)."
                     ),
                 },
             },

@@ -657,13 +657,15 @@ DEMOS = {
         "elevator, and can't handle hills -- keep it to gentle slopes. "
         "Rex is at 5218 N Clark St, Chicago, gets a 60 minute walk."
     ),
-    # too many morning walks to fit before noon -> feasible=false
+    # too many hour-long morning walks to cluster before noon, even
+    # leaving at 8:00 -> feasible=false (the walker chooses the start)
     "infeasible": (
-        "Plan walks starting and ending at Millennium Park, Chicago. I "
-        "leave at 09:00. Every one of these needs a MORNING walk: "
-        "Rex at 5218 N Clark St, Chicago (60 minutes); "
-        "Daisy at Lincoln Park Zoo, Chicago (60 minutes); "
-        "Ziggy at Wrigley Field, Chicago (60 minutes)."
+        "Plan walks starting and ending at Millennium Park, Chicago. "
+        "Every one of these needs a MORNING walk of 60 minutes: "
+        "Rex at 5218 N Clark St, Chicago; "
+        "Daisy at Lincoln Park Zoo, Chicago; "
+        "Ziggy at Wrigley Field, Chicago; "
+        "Pip at Montrose Beach, Chicago."
     ),
 }
 

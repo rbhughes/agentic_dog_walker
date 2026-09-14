@@ -215,6 +215,32 @@ the plumbing and this documentation stay intact for model experiments.
   the timeline and the auditor requires each dog's weather check to carry
   that dog's band. Preset exemplars: Daisy [45,95], Wilbur [-10,70].
   Verified live: same ~75F afternoon, Wilbur CAUTION while others OK.
+- **Meds + terrain + walk windows: DONE 2026-09-14.** Three more per-dog
+  attributes, each attribute → schedule/verdict effect → oracle rule:
+  - `needs_meds` (boolean): meds are given on arrival, adding
+    `MED_HANDLING_MIN=10` handling time before the walk. Not a timed
+    deadline — walkers don't administer meds at a set hour (design
+    corrected 2026-09-13).
+  - `max_relief_m` (hill tolerance): a labeled slider on the site
+    (flat only / gentle slopes / hilly OK / any terrain). Set → requires
+    a `check_terrain` call at that dog's location (Open-Meteo elevation
+    on a 3×3 grid, relief = max−min); `audit_terrain_coverage` vetoes
+    submit_plan without it. Advisory (walks are abstract loops, no path).
+  - `walk_window` (any / morning / afternoon): how walkers really
+    schedule. **The walker chooses the departure** — start times are
+    flexible, so `optimize_route` solves for a departure that clusters
+    every walk into ONE outing across the noon boundary (OR-Tools time
+    dimension, absolute minutes, free start cumul, slack 0 = no
+    loitering, finalizer minimizes departure). Morning walk starts
+    8:00am–noon (`MORNING_START_MIN`), afternoon at/after noon
+    (`NOON_MIN`). A lone afternoon dog starts at noon; one AM + one PM
+    become a single 11-ish-to-1-ish trip. A caller `start_time` is
+    IGNORED once any window is set; the solved start comes back in the
+    result. No (departure, order) that fits every window → `feasible:
+    false` (real infeasibility, e.g. 4× 60-min morning walks across
+    Chicago). `audit_feasibility` vetoes BOTH directions (rosy-over-
+    infeasible and false-alarm). Superseded the earlier fixed-start
+    model that computed forward from a required start_time.
 - **Model picker (DONE 2026-09-11)**: service MODELS allowlist (cost
   armor — browser picks from the list, never names arbitrary models),
   optional `model` on /plan threaded through run_events, /info returns the
