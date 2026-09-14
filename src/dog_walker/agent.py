@@ -647,7 +647,7 @@ DEMOS = {
     # tolerance / terrain check (Ziggy), plain dog (Rex)
     "full": (
         "Plan this morning's walks starting and ending at 21 W Chestnut "
-        "St, Chicago. I leave at 09:00. "
+        "St, Chicago. "
         "Daisy is at Lincoln Park Zoo, Chicago, gets a 20 minute walk, is "
         "sensitive to cold so keep her comfortable between 45 and 95 F, "
         "needs her medication given (adds a little time), and should be "
