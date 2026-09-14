@@ -7,7 +7,7 @@ behavioral claim per test, no network, no model.
 
 import json
 
-from dog_walker.agent import audit_weather_coverage, validate_call
+from dog_walker.agent import audit_feasibility, audit_weather_coverage, validate_call
 
 # ---------------------------------------------------------------------
 # validate_call: the referee
@@ -48,6 +48,7 @@ def test_submit_plan_is_validated_like_any_tool():
     error = validate_call("submit_plan", {
         "walks": [{"pet": "Rex", "walk_start": "13:00",
                    "walk_end": "14:00", "verdict": "MAYBE"}],
+        "feasible": True,
         "overall_advice": "eh",
     })
     assert "MAYBE" in error
@@ -240,3 +241,25 @@ def test_oversized_buffer_is_bounced():
               "walk_minutes": 60, "buffer_minutes": 90}]
     error = validate_call("optimize_route", {"stops": stops})
     assert "buffer_minutes" in error and "90" in error
+
+
+def test_feasibility_oracle_vetoes_rosy_plan_over_infeasible_route():
+    msgs = [tool_result({"feasible": False,
+                         "reason": "no order meets every medication deadline"})]
+    gap = audit_feasibility(msgs, {"feasible": True})
+    assert gap and "infeasible" in gap
+
+
+def test_feasibility_oracle_accepts_honest_infeasible():
+    msgs = [tool_result({"feasible": False, "reason": "x"})]
+    assert audit_feasibility(msgs, {"feasible": False}) is None
+
+
+def test_feasibility_oracle_vetoes_false_alarm():
+    # crying infeasible over a workable route (the weather-skip loophole)
+    msgs = [tool_result({"feasible": True, "timeline": []})]
+    assert "feasible" in audit_feasibility(msgs, {"feasible": False})
+
+
+def test_feasibility_oracle_passes_when_no_route_yet():
+    assert audit_feasibility([], {"feasible": True}) is None

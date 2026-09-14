@@ -88,10 +88,19 @@ SUBMIT_PLAN_SCHEMA = {
                         "additionalProperties": False,
                     },
                 },
+                "feasible": {
+                    "type": "boolean",
+                    "description": (
+                        "false if the route cannot meet every medication "
+                        "deadline (optimize_route returned feasible=false "
+                        "or a timeline entry has deadline_met=false); "
+                        "explain in overall_advice"
+                    ),
+                },
                 "route_summary": {"type": "string"},
                 "overall_advice": {"type": "string"},
             },
-            "required": ["walks", "overall_advice"],
+            "required": ["walks", "feasible", "overall_advice"],
             "additionalProperties": False,
         },
     },
@@ -236,6 +245,50 @@ def _clock_to_hours(hhmm: str) -> float:
     """'13:44' -> 13.73; the auditor compares hours as floats."""
     h, m = hhmm.split(":")
     return int(h) + int(m) / 60
+
+
+def _latest_route_result(messages: list) -> dict | None:
+    """The most recent optimize_route RESULT payload (feasible or not)."""
+    found = None
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+        try:
+            payload = json.loads(msg.get("content") or "")
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and ("timeline" in payload or "feasible" in payload):
+            found = payload
+    return found
+
+
+def audit_feasibility(messages: list, plan: dict) -> str | None:
+    """The medications oracle: the plan's `feasible` flag must match
+    what the route actually reported. Deterministic, no model.
+
+    Both directions are enforced. Claiming success over an infeasible
+    route is the fabrication we care about; claiming infeasible over a
+    workable route is the loophole that would let a model skip every
+    weather check by crying wolf. Neither passes.
+    """
+    route = _latest_route_result(messages)
+    if route is None:
+        return None  # no route yet; the weather auditor handles that
+    route_feasible = bool(route.get("feasible", True))
+    plan_feasible = plan.get("feasible")
+    if not route_feasible and plan_feasible is not False:
+        reason = route.get("reason", "a medication deadline cannot be met")
+        return (
+            f"REJECTED: the route is infeasible -- {reason}. Submit with "
+            "feasible=false and say which deadline can't be met in "
+            "overall_advice."
+        )
+    if route_feasible and plan_feasible is False:
+        return (
+            "REJECTED: the route IS feasible -- every medication deadline "
+            "is met. Submit with feasible=true."
+        )
+    return None
 
 
 def audit_weather_coverage(messages: list) -> str | None:
@@ -404,8 +457,13 @@ def run_events(request: str, model: str | None = None):
                 "interval from the route timeline, at that dog's "
                 "location, passing that dog's comfort_min_f and "
                 "comfort_max_f if stated. Include each dog's stated "
-                "buffer_minutes and comfort band in the optimize_route "
-                "stops. Weather windows are whole hours with an "
+                "buffer_minutes, comfort band, and any medication "
+                "deadline (med_deadline) and handling time (med_minutes) "
+                "in the optimize_route stops. If optimize_route returns "
+                "feasible=false, some medication deadline cannot be met: "
+                "submit_plan with feasible=false and explain. Otherwise "
+                "submit with feasible=true. Weather windows are whole "
+                "hours with an "
                 "EXCLUSIVE end: a walk 13:29-13:59 is start_hour 13, "
                 "end_hour 14. Finish by calling submit_plan exactly "
                 "once. Dates are ISO YYYY-MM-DD. Be concise."
@@ -446,7 +504,17 @@ def run_events(request: str, model: str | None = None):
                     continue
 
                 if name == "submit_plan":
-                    # ---- REFLECT: the deterministic auditor gets a veto
+                    # ---- REFLECT: deterministic oracles, each with a veto.
+                    # Feasibility first: it settles whether the plan even
+                    # claims the walks happen. An honestly-infeasible plan
+                    # has no timeline to weather-check, so it stops here.
+                    if gap := audit_feasibility(messages, arguments):
+                        yield {"event": "audit_veto", "gap": gap}
+                        messages.append(tool_feedback(call, {"error": gap}))
+                        continue
+                    if arguments.get("feasible") is False:
+                        yield {"event": "final", "plan": arguments}
+                        return
                     if gap := audit_weather_coverage(messages):
                         yield {"event": "audit_veto", "gap": gap}
                         messages.append(tool_feedback(call, {"error": gap}))

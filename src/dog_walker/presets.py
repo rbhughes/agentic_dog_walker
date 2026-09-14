@@ -144,6 +144,13 @@ def build_request(start_address: str, start_time: str, pets: list[dict]) -> str:
                 f"{pet['name']} needs {pet['buffer_minutes']} minutes of "
                 f"prep time before the walk (buffer_minutes)."
             )
+        if pet.get("med_deadline"):
+            extra = (f", and it takes {pet['med_minutes']} minutes to give"
+                     if pet.get("med_minutes") else "")
+            lines.append(
+                f"{pet['name']} needs medication by {pet['med_deadline']}"
+                f"{extra} (med_deadline / med_minutes)."
+            )
         if "comfort_min_f" in pet or "comfort_max_f" in pet:
             lines.append(
                 f"{pet['name']}'s comfortable temperature band is "

@@ -44,6 +44,7 @@ def call(name: str, arguments: dict) -> dict:
 GOOD_PLAN = {
     "walks": [{"pet": "Daisy", "walk_start": "13:09", "walk_end": "13:29",
                "verdict": "OK"}],
+    "feasible": True,
     "overall_advice": "fine day for it",
 }
 
@@ -79,7 +80,7 @@ def test_plan_event_reads_reasoning_not_just_content(monkeypatch):
 
 
 def test_invalid_call_becomes_bounce_event_then_recovers(monkeypatch):
-    bad = {"walks": [], "overall_advice": 42}          # advice: wrong type
+    bad = {"walks": [], "feasible": True, "overall_advice": 42}  # advice: wrong type
     monkeypatch.setattr(agent, "audit_weather_coverage", _audit_satisfied)
     monkeypatch.setattr(agent, "chat", scripted_chat([
         {},                                            # plan: nothing

@@ -460,3 +460,60 @@ def test_timeline_echoes_the_band_for_the_auditor(monkeypatch):
     r = optimize_route(stops, start_time="13:00")
     rex = next(e for e in r["timeline"] if e["stop"] == "Rex")
     assert rex["comfort_min_f"] == 45 and rex["comfort_max_f"] == 95
+
+
+# ---------------------------------------------------------------------
+# medications: deadlines (urgency) + handling time (difficulty)
+# ---------------------------------------------------------------------
+
+
+def med_stops():
+    return [dict(s) for s in STOPS]  # home + Daisy/Rex/Biscuit on a line
+
+
+def test_met_deadline_is_feasible_and_flagged(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = med_stops()
+    stops[1]["med_deadline"] = "13:30"   # Daisy, reachable ~13:09
+    stops[1]["med_minutes"] = 5
+    r = optimize_route(stops, start_time="13:00")
+    assert r["feasible"] is True
+    daisy = next(e for e in r["timeline"] if e["stop"] == "Daisy")
+    assert daisy["deadline_met"] is True
+    assert daisy["med_minutes"] == 5
+    # meds delay the walk start (arrive 13:09 + 5 med) but not feasibility
+    assert daisy["walk_start"] == "13:14"
+
+
+def test_impossible_deadline_is_infeasible(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = med_stops()
+    stops[3]["med_deadline"] = "13:05"   # Biscuit, farthest; unreachable that fast
+    r = optimize_route(stops, start_time="13:00")
+    assert r["feasible"] is False
+    assert "deadline" in r["reason"]
+    assert "timeline" not in r          # no schedule when nothing works
+
+
+def test_deadline_reorders_to_stay_feasible(monkeypatch):
+    # distance order is home->Daisy->Rex->Biscuit; a tight deadline on
+    # Biscuit forces it earlier, and the timed solver finds an order
+    # that still meets it rather than falsely reporting infeasible
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", fake_line_matrix)
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = med_stops()
+    for s in stops[1:]:
+        s["walk_minutes"] = 0           # isolate transit timing
+    stops[3]["med_deadline"] = "13:35"  # Biscuit reachable only if visited early
+    r = optimize_route(stops, start_time="13:00")
+    assert r["feasible"] is True
+    biscuit = next(e for e in r["timeline"] if e["stop"] == "Biscuit")
+    assert biscuit["deadline_met"] is True
+
+
+def test_deadline_without_start_time_is_an_error():
+    stops = med_stops()
+    stops[1]["med_deadline"] = "13:30"
+    assert "start_time" in optimize_route(stops)["error"]

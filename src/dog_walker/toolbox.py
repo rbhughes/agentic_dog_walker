@@ -502,6 +502,62 @@ def _solve_order(matrix: list[list[int]]) -> list[int]:
     return order  # e.g. [0, 3, 1, 2]; return to 0 is implicit
 
 
+def _solve_order_timed(
+    matrix: list[list[int]],
+    service_min: list[int],
+    deadline_min: list[int | None],
+    speed_m_per_min: float,
+) -> list[int] | None:
+    """Like _solve_order, but honors per-stop deadlines (medication
+    urgency). Adds an OR-Tools time dimension: cumulative time at a
+    node is the walker's ARRIVAL there, and a deadline caps it. Among
+    all deadline-satisfying orders it still minimizes distance.
+    Returns None when NO order can meet every deadline -- real,
+    checkable infeasibility, not a distance-order artifact.
+
+    service_min[i]  minutes the walker spends at stop i before leaving
+                    (buffer + meds + walk); 0 at the depot.
+    deadline_min[i] latest arrival at i in minutes-from-start, or None.
+    """
+    from ortools.constraint_solver import pywrapcp, routing_enums_pb2
+
+    n = len(matrix)
+    manager = pywrapcp.RoutingIndexManager(n, 1, 0)
+    routing = pywrapcp.RoutingModel(manager)
+
+    def distance_cb(i: int, j: int) -> int:
+        return matrix[manager.IndexToNode(i)][manager.IndexToNode(j)]
+
+    dist_idx = routing.RegisterTransitCallback(distance_cb)
+    routing.SetArcCostEvaluatorOfAllVehicles(dist_idx)  # still shortest
+
+    def time_cb(i: int, j: int) -> int:
+        a = manager.IndexToNode(i)
+        travel = round(matrix[a][manager.IndexToNode(j)] / speed_m_per_min)
+        return travel + service_min[a]  # leaving a costs its service
+
+    time_idx = routing.RegisterTransitCallback(time_cb)
+    routing.AddDimension(time_idx, 0, 24 * 60, True, "Time")  # fixed start = 0
+    time_dim = routing.GetDimensionOrDie("Time")
+    for node, deadline in enumerate(deadline_min):
+        if deadline is not None:
+            time_dim.CumulVar(manager.NodeToIndex(node)).SetMax(deadline)
+
+    params = pywrapcp.DefaultRoutingSearchParameters()
+    params.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    )
+    solution = routing.SolveWithParameters(params)
+    if solution is None:
+        return None
+
+    order, index = [], routing.Start(0)
+    while not routing.IsEnd(index):
+        order.append(manager.IndexToNode(index))
+        index = solution.Value(routing.NextVar(index))
+    return order
+
+
 def _street_geometry(coords_in_order: list[tuple[float, float]]) -> dict | None:
     """Street-following path through the ordered stops, as a GeoJSON
     LineString the browser map draws directly. None on any failure --
@@ -554,7 +610,44 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
 
     coords = [(float(s["lat"]), float(s["lon"])) for s in stops]
     matrix, real_streets = _walking_matrix(coords)
-    order = _solve_order(matrix)
+
+    def start_min() -> int:
+        h, m = map(int, start_time.split(":"))
+        return h * 60 + m
+
+    # medication deadlines (urgency) turn the plain TSP into a
+    # time-windowed solve; infeasibility is a real, honest outcome
+    has_deadlines = any(s.get("med_deadline") for s in stops)
+    if has_deadlines and start_time is None:
+        return {"error": "medication deadlines require start_time"}
+    if has_deadlines:
+        service = [
+            int(s.get("buffer_minutes", 0))
+            + int(s.get("med_minutes", 0))
+            + int(s.get("walk_minutes", 0))
+            for s in stops
+        ]
+        deadlines: list[int | None] = []
+        for s in stops:
+            d = s.get("med_deadline")
+            deadlines.append(
+                (int(d[:2]) * 60 + int(d[3:5])) - start_min() if d else None
+            )
+        order = _solve_order_timed(matrix, service, deadlines, WALK_SPEED_M_PER_MIN)
+        if order is None:
+            due = [
+                {"stop": s["name"], "med_deadline": s["med_deadline"]}
+                for s in stops
+                if s.get("med_deadline")
+            ]
+            return {
+                "feasible": False,
+                "reason": "no visiting order meets every medication deadline",
+                "deadlines": due,
+                "uses_real_streets": real_streets,
+            }
+    else:
+        order = _solve_order(matrix)
 
     loop = order + [0]  # explicit return home
     legs = []
@@ -578,32 +671,48 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
         total = h * 60 + m + minutes
         return f"{int(total // 60) % 24:02d}:{int(total % 60):02d}"
 
+    all_met = True
     timeline, t = [], 0.0
     for pos, (a, b) in enumerate(zip(loop, loop[1:])):
         t += matrix[a][b] / WALK_SPEED_M_PER_MIN
         if b == 0:
             timeline.append({"stop": stops[0]["name"], "arrive": clock(t)})
             break
+        arrive = t
         walk = int(stops[b].get("walk_minutes", 0))
         buffer = int(stops[b].get("buffer_minutes", 0))
+        meds = int(stops[b].get("med_minutes", 0))
         entry = {
             "stop": stops[b]["name"],
-            "arrive": clock(t),
-            "walk_start": clock(t + buffer),
-            "walk_end": clock(t + buffer + walk),
+            "arrive": clock(arrive),
+            # meds are administered on arrival; the walk follows the
+            # prep + med handling
+            "walk_start": clock(t + buffer + meds),
+            "walk_end": clock(t + buffer + meds + walk),
             "walk_minutes": walk,
         }
         if buffer:
             entry["buffer_minutes"] = buffer
+        if meds:
+            entry["med_minutes"] = meds
+        deadline = stops[b].get("med_deadline")
+        if deadline:
+            met = round(arrive) <= (int(deadline[:2]) * 60 + int(deadline[3:5])
+                                    - start_min())
+            entry["med_deadline"] = deadline
+            entry["deadline_met"] = met
+            all_met = all_met and met
         for key in ("comfort_min_f", "comfort_max_f"):
             if stops[b].get(key) is not None:
                 entry[key] = float(stops[b][key])
         timeline.append(entry)
-        t += buffer + walk
+        t += buffer + meds + walk
 
     dog_min = sum(int(s.get("walk_minutes", 0)) for s in stops)
     buffer_min = sum(int(s.get("buffer_minutes", 0)) for s in stops)
+    med_min = sum(int(s.get("med_minutes", 0)) for s in stops)
     return {
+        "feasible": all_met,
         "order": [stops[i]["name"] for i in order],
         "legs": legs,
         "timeline": timeline,
@@ -611,7 +720,8 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
         "transit_minutes": round(transit_min),
         "dog_walk_minutes": dog_min,
         "buffer_minutes": buffer_min,
-        "total_minutes": round(transit_min + dog_min + buffer_min),
+        "med_minutes": med_min,
+        "total_minutes": round(transit_min + dog_min + buffer_min + med_min),
         "uses_real_streets": real_streets,
         "geometry": _street_geometry([coords[i] for i in loop]),
     }
@@ -665,6 +775,22 @@ OPTIMIZE_ROUTE_SCHEMA = {
                                 "type": "number", "minimum": -20, "maximum": 110,
                                 "description": "comfort-band maximum, F",
                             },
+                            "med_deadline": {
+                                "type": "string",
+                                "description": (
+                                    "HH:MM: this dog needs medication and "
+                                    "must be REACHED by this time (urgency). "
+                                    "Requires start_time. May make the route "
+                                    "infeasible -- then feasible=false."
+                                ),
+                            },
+                            "med_minutes": {
+                                "type": "integer", "minimum": 0, "maximum": 30,
+                                "description": (
+                                    "extra handling minutes to administer "
+                                    "medication (difficulty)"
+                                ),
+                            },
                         },
                         "required": ["name", "lat", "lon"],
                         "additionalProperties": False,
@@ -673,7 +799,10 @@ OPTIMIZE_ROUTE_SCHEMA = {
                 },
                 "start_time": {
                     "type": "string",
-                    "description": "HH:MM; renders the timeline as clock times",
+                    "description": (
+                        "HH:MM; renders the timeline as clock times and "
+                        "anchors medication deadlines"
+                    ),
                 },
             },
             "required": ["stops"],
