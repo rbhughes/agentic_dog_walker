@@ -402,6 +402,95 @@ GEOCODE_SCHEMA = {
 }
 
 # ---------------------------------------------------------------------
+# terrain (Open-Meteo elevation) -- a per-dog hilliness advisory.
+#
+# Walks are abstract loops from a dog's home, not routed paths, so
+# "avoid hills" can only mean: is this dog's NEIGHBORHOOD too hilly
+# for it? We sample elevation on a small grid around the home and
+# score the relief (max minus min). A dog with a stated tolerance
+# (max_relief_m) gets OK / CAUTION / AVOID. Same shape as weather:
+# fetch a per-location value, judge against a per-dog threshold in
+# code, let the auditor require the check was made.
+# ---------------------------------------------------------------------
+
+ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
+DEFAULT_MAX_RELIEF_M = 1000   # generous: a dog with no stated limit never flags
+_TERRAIN_GRID_DEG = 0.003     # ~330m; a 3x3 grid spans ~660m around the home
+
+
+def fetch_elevation_grid(lat: float, lon: float) -> list[float]:
+    """Elevations (m) on a 3x3 grid around the point, one API call."""
+    import math
+
+    dlon = _TERRAIN_GRID_DEG / max(math.cos(math.radians(lat)), 0.1)
+    lats, lons = [], []
+    for i in (-1, 0, 1):
+        for j in (-1, 0, 1):
+            lats.append(lat + i * _TERRAIN_GRID_DEG)
+            lons.append(lon + j * dlon)
+    resp = requests.get(
+        ELEVATION_URL,
+        params={
+            "latitude": ",".join(f"{x:.5f}" for x in lats),
+            "longitude": ",".join(f"{x:.5f}" for x in lons),
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return [float(e) for e in resp.json()["elevation"]]
+
+
+def assess_terrain(elevations: list[float], max_relief_m: float) -> dict[str, Any]:
+    """Deterministic, offline: relief vs the dog's tolerance.
+    OK within tolerance, CAUTION up to 1.5x, AVOID beyond. The 1.5x
+    band and the tier idea are policy, like the weather ladders."""
+    relief = round(max(elevations) - min(elevations), 1)
+    if relief <= max_relief_m:
+        verdict = "OK"
+    elif relief <= 1.5 * max_relief_m:
+        verdict = "CAUTION"
+    else:
+        verdict = "AVOID"
+    return {"verdict": verdict, "relief_m": relief, "max_relief_m": max_relief_m}
+
+
+def check_terrain(
+    lat: float, lon: float, max_relief_m: float = DEFAULT_MAX_RELIEF_M
+) -> dict[str, Any]:
+    """Hilliness advisory for a dog's neighborhood: fetch + assess."""
+    return assess_terrain(fetch_elevation_grid(lat, lon), max_relief_m)
+
+
+CHECK_TERRAIN_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "check_terrain",
+        "description": (
+            "Assess how hilly a dog's neighborhood is (elevation relief "
+            "over a small grid around its home) against that dog's "
+            "max_relief_m tolerance. Returns OK/CAUTION/AVOID. Call for "
+            "any dog that has a max_relief_m, at that dog's location."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lat": {"type": "number", "description": "latitude"},
+                "lon": {"type": "number", "description": "longitude"},
+                "max_relief_m": {
+                    "type": "number", "minimum": 1, "maximum": 2000,
+                    "description": (
+                        "this dog's hill tolerance in metres of relief; "
+                        "e.g. 15 for a dog that needs flat ground"
+                    ),
+                },
+            },
+            "required": ["lat", "lon", "max_relief_m"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+# ---------------------------------------------------------------------
 # registry: name -> (callable, schema). Agent + MCP facade both read
 # ---------------------------------------------------------------------
 # route optimization (OR-Tools + OpenRouteService)
@@ -608,6 +697,11 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
     if not 2 <= len(stops) <= MAX_STOPS:
         return {"error": f"need 2-{MAX_STOPS} stops, got {len(stops)}"}
 
+    # validate the deadline/start_time contract BEFORE any network work
+    has_deadlines = any(s.get("med_deadline") for s in stops)
+    if has_deadlines and start_time is None:
+        return {"error": "medication deadlines require start_time"}
+
     coords = [(float(s["lat"]), float(s["lon"])) for s in stops]
     matrix, real_streets = _walking_matrix(coords)
 
@@ -617,9 +711,6 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
 
     # medication deadlines (urgency) turn the plain TSP into a
     # time-windowed solve; infeasibility is a real, honest outcome
-    has_deadlines = any(s.get("med_deadline") for s in stops)
-    if has_deadlines and start_time is None:
-        return {"error": "medication deadlines require start_time"}
     if has_deadlines:
         service = [
             int(s.get("buffer_minutes", 0))
@@ -702,7 +793,7 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
             entry["med_deadline"] = deadline
             entry["deadline_met"] = met
             all_met = all_met and met
-        for key in ("comfort_min_f", "comfort_max_f"):
+        for key in ("comfort_min_f", "comfort_max_f", "max_relief_m"):
             if stops[b].get(key) is not None:
                 entry[key] = float(stops[b][key])
         timeline.append(entry)
@@ -775,6 +866,13 @@ OPTIMIZE_ROUTE_SCHEMA = {
                                 "type": "number", "minimum": -20, "maximum": 110,
                                 "description": "comfort-band maximum, F",
                             },
+                            "max_relief_m": {
+                                "type": "number", "minimum": 1, "maximum": 2000,
+                                "description": (
+                                    "this dog's hill tolerance in metres of "
+                                    "relief; set it to require a terrain check"
+                                ),
+                            },
                             "med_deadline": {
                                 "type": "string",
                                 "description": (
@@ -818,6 +916,7 @@ OPTIMIZE_ROUTE_SCHEMA = {
 
 REGISTRY: dict[str, tuple[Any, dict]] = {
     "check_weather": (check_weather, CHECK_WEATHER_SCHEMA),
+    "check_terrain": (check_terrain, CHECK_TERRAIN_SCHEMA),
     "geocode_addresses": (geocode_addresses, GEOCODE_SCHEMA),
     "optimize_route": (optimize_route, OPTIMIZE_ROUTE_SCHEMA),
 }

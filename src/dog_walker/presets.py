@@ -151,6 +151,12 @@ def build_request(start_address: str, start_time: str, pets: list[dict]) -> str:
                 f"{pet['name']} needs medication by {pet['med_deadline']}"
                 f"{extra} (med_deadline / med_minutes)."
             )
+        if pet.get("max_relief_m"):
+            lines.append(
+                f"{pet['name']} can't handle hilly terrain -- keep it to "
+                f"about {pet['max_relief_m']} metres of relief "
+                f"(max_relief_m)."
+            )
         if "comfort_min_f" in pet or "comfort_max_f" in pet:
             lines.append(
                 f"{pet['name']}'s comfortable temperature band is "

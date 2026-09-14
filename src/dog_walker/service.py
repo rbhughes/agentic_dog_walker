@@ -103,6 +103,7 @@ class Pet(BaseModel):
     comfort_max_f: int = Field(default=84, ge=-20, le=110)
     med_deadline: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     med_minutes: int = Field(default=0, ge=0, le=30)
+    max_relief_m: int | None = Field(default=None, ge=1, le=2000)
 
     @model_validator(mode="after")
     def band_is_sane(self):

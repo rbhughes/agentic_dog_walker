@@ -517,3 +517,35 @@ def test_deadline_without_start_time_is_an_error():
     stops = med_stops()
     stops[1]["med_deadline"] = "13:30"
     assert "start_time" in optimize_route(stops)["error"]
+
+
+# ---------------------------------------------------------------------
+# terrain: per-dog hilliness advisory
+# ---------------------------------------------------------------------
+
+from dog_walker.toolbox import assess_terrain, check_terrain  # noqa: E402
+
+
+def test_flat_ground_is_ok():
+    r = assess_terrain([100, 101, 99, 100, 102, 98, 100, 101, 99], 20)
+    assert r["verdict"] == "OK" and r["relief_m"] == 4
+
+
+def test_hilly_ground_beyond_tolerance_is_avoid():
+    r = assess_terrain([100, 160, 130, 100, 175, 98, 140, 101, 99], 20)
+    assert r["verdict"] == "AVOID"       # 77m relief vs 20m tolerance
+
+
+def test_moderate_relief_is_caution():
+    # relief 25 vs tolerance 20: within 1.5x -> CAUTION
+    r = assess_terrain([100, 125, 110], 20)
+    assert r["verdict"] == "CAUTION" and r["relief_m"] == 25
+
+
+def test_check_terrain_is_fetch_then_assess(monkeypatch):
+    monkeypatch.setattr(
+        "dog_walker.toolbox.fetch_elevation_grid",
+        lambda lat, lon: [200, 340, 210],   # 140m relief
+    )
+    r = check_terrain(41.9, -87.6, max_relief_m=30)
+    assert r["verdict"] == "AVOID" and r["relief_m"] == 140

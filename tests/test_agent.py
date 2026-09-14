@@ -7,7 +7,7 @@ behavioral claim per test, no network, no model.
 
 import json
 
-from dog_walker.agent import audit_feasibility, audit_weather_coverage, validate_call
+from dog_walker.agent import (audit_feasibility, audit_terrain_coverage, audit_weather_coverage, validate_call)
 
 # ---------------------------------------------------------------------
 # validate_call: the referee
@@ -263,3 +263,34 @@ def test_feasibility_oracle_vetoes_false_alarm():
 
 def test_feasibility_oracle_passes_when_no_route_yet():
     assert audit_feasibility([], {"feasible": True}) is None
+
+
+def test_terrain_gap_when_sensitive_dog_unchecked():
+    call = assistant_call("optimize_route", {
+        "stops": [
+            {"name": "home", "lat": 41.948, "lon": -87.655},
+            {"name": "Cliff", "lat": ZOO[0], "lon": ZOO[1],
+             "walk_minutes": 20, "max_relief_m": 15},
+        ],
+        "start_time": "13:00",
+    })
+    result = tool_result({"feasible": True, "timeline": [
+        {"stop": "Cliff", "walk_start": "13:09", "walk_end": "13:29",
+         "walk_minutes": 20, "max_relief_m": 15},
+    ]})
+    gap = audit_terrain_coverage([call, result])
+    assert gap and "Cliff" in gap and "max_relief_m=15" in gap
+
+
+def test_terrain_coverage_satisfied():
+    call = assistant_call("optimize_route", {
+        "stops": [
+            {"name": "home", "lat": 41.948, "lon": -87.655},
+            {"name": "Cliff", "lat": ZOO[0], "lon": ZOO[1],
+             "walk_minutes": 20, "max_relief_m": 15},
+        ],
+        "start_time": "13:00",
+    })
+    terrain = assistant_call("check_terrain", {
+        "lat": ZOO[0], "lon": ZOO[1], "max_relief_m": 15})
+    assert audit_terrain_coverage([call, terrain]) is None

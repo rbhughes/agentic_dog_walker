@@ -291,6 +291,50 @@ def audit_feasibility(messages: list, plan: dict) -> str | None:
     return None
 
 
+def audit_terrain_coverage(messages: list) -> str | None:
+    """The terrain oracle, parallel to weather coverage: every dog that
+    declared a max_relief_m must have a check_terrain call at its own
+    location carrying that exact tolerance. A terrain verdict computed
+    against the wrong tolerance is the wrong verdict, so a mismatch is
+    not coverage. Returns one message naming every gap, or None.
+    """
+    route_call, terrain_calls = None, []
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls") or []:
+            if tc["function"]["name"] == "optimize_route":
+                route_call = _call_args(tc)
+            elif tc["function"]["name"] == "check_terrain":
+                terrain_calls.append(_call_args(tc))
+    if route_call is None:
+        return None  # no route yet; the weather auditor handles that
+
+    gaps = []
+    for stop in route_call["stops"]:
+        want = stop.get("max_relief_m")
+        if want is None:
+            continue
+        lat, lon = stop["lat"], stop["lon"]
+
+        def covered(c: dict) -> bool:
+            return (
+                abs(c.get("lat", 999) - lat) <= _NEAR_DEG
+                and abs(c.get("lon", 999) - lon) <= _NEAR_DEG
+                and abs(float(c.get("max_relief_m", -1)) - float(want)) < 0.5
+            )
+
+        if not any(covered(c) for c in terrain_calls):
+            gaps.append(
+                f"GAP: {stop['name']} has a hill tolerance: call "
+                f"check_terrain with lat={lat}, lon={lon}, "
+                f"max_relief_m={want:g}."
+            )
+    if gaps:
+        return " ".join(gaps) + " Make ALL these calls, then submit again."
+    return None
+
+
 def audit_weather_coverage(messages: list) -> str | None:
     """None if every dog's walk interval has a covering weather check,
     else ONE corrective sentence to inject. One gap per audit -- the
@@ -457,6 +501,9 @@ def run_events(request: str, model: str | None = None):
                 "interval from the route timeline, at that dog's "
                 "location, passing that dog's comfort_min_f and "
                 "comfort_max_f if stated. Include each dog's stated "
+                "For any dog with a max_relief_m (hill tolerance), also "
+                "call check_terrain at that dog's location with its "
+                "max_relief_m. Include each dog's "
                 "buffer_minutes, comfort band, and any medication "
                 "deadline (med_deadline) and handling time (med_minutes) "
                 "in the optimize_route stops. If optimize_route returns "
@@ -516,6 +563,10 @@ def run_events(request: str, model: str | None = None):
                         yield {"event": "final", "plan": arguments}
                         return
                     if gap := audit_weather_coverage(messages):
+                        yield {"event": "audit_veto", "gap": gap}
+                        messages.append(tool_feedback(call, {"error": gap}))
+                        continue
+                    if gap := audit_terrain_coverage(messages):
                         yield {"event": "audit_veto", "gap": gap}
                         messages.append(tool_feedback(call, {"error": gap}))
                         continue
