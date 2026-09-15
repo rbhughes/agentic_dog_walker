@@ -1,7 +1,9 @@
 ---
 // walker.purr.io — the measurement report is the front door. The
-// interactive demo lives at /live. Charts render client-side from the
-// 2026-09-14 sweep data; everything else is static.
+// interactive demo lives at /live. Charts render client-side from
+// site/src/data/measurement.json (built by `dog_walker.measure
+// --build-report <archive...>`), so a re-run refreshes them by rebuild.
+import data from "../data/measurement.json";
 ---
 
 <!doctype html>
@@ -50,10 +52,10 @@
       </div>
 
       <div class="statband">
-        <div class="stat"><div class="k">210</div><div class="l">live runs, all paid</div></div>
-        <div class="stat"><div class="k">$1.60</div><div class="l">total sweep cost</div></div>
-        <div class="stat"><div class="k">6×7</div><div class="l">models × scenarios</div></div>
-        <div class="stat"><div class="k">k=5</div><div class="l">runs per cell</div></div>
+        <div class="stat"><div class="k">{data.totals.runs}</div><div class="l">live runs, all paid</div></div>
+        <div class="stat"><div class="k">${data.totals.cost.toFixed(2)}</div><div class="l">total sweep cost</div></div>
+        <div class="stat"><div class="k">{data.totals.models}×{data.totals.scenarios}</div><div class="l">models × scenarios</div></div>
+        <div class="stat"><div class="k">k={data.totals.k}</div><div class="l">runs per cell</div></div>
       </div>
     </header>
 
@@ -300,24 +302,17 @@
 
     <footer>
       <p>
-        Sweep 2026-09-14 · 210 runs · 6 models × 7 scenarios · k=5 · $1.596 ·
+        Sweep {data.generated} · {data.totals.runs} runs · {data.totals.models} models ×
+        {data.totals.scenarios} scenarios · k={data.totals.k} · ${data.totals.cost} ·
         harness <span class="mono">dog_walker.measure</span> · inference via OpenRouter.
       </p>
       <p class="colophon">A <a href="https://purr.io">purr.io</a> project · © 2026 · built in the open</p>
     </footer>
 
-    <script>
-      const MODELS = [
-        { id:"inclusionai/ling-3.0-flash", short:"ling-3.0-flash",  pass:35, ci:[0.90,1.00], cost:0.0004, sec:10 },
-        { id:"anthropic/claude-haiku-4.5", short:"haiku-4.5",       pass:35, ci:[0.90,1.00], cost:0.0265, sec:15 },
-        { id:"qwen/qwen3.7-flash",         short:"qwen3.7-flash",   pass:33, ci:[0.81,0.98], cost:0.0008, sec:23 },
-        { id:"openai/gpt-oss-120b",        short:"gpt-oss-120b",    pass:32, ci:[0.78,0.97], cost:0.0020, sec:52 },
-        { id:"qwen/qwen3-8b",              short:"qwen3-8b",        pass:27, ci:[0.61,0.88], cost:0.0055, sec:49, note:"prior default" },
-        { id:"inception/mercury-2.5",      short:"mercury-2.5",     pass:25, ci:[0.55,0.84], cost:0.0010, sec:6 },
-      ];
-      const N = 35;
+    <script define:vars={{ DATA: data }}>
+      const MODELS = DATA.models;
       const PASS = "#4a6fa5", POOR = "#cc6137";      // reliable vs poor (CVD-safe blue/terracotta)
-      const tone = m => (m.pass / N >= 0.90 ? PASS : POOR);
+      const tone = m => (m.pass / m.n >= 0.90 ? PASS : POOR);
       const SVGNS = "http://www.w3.org/2000/svg";
       function el(tag, attrs, text) {
         const n = document.createElementNS(SVGNS, tag);
@@ -341,7 +336,7 @@
           svg.appendChild(el("text", { x, y:H-padB+18, "text-anchor":"middle", class:"tk" }, Math.round(t*100)+"%"));
         }
         rows.forEach((m, i) => {
-          const cy = padT + i*rowH + rowH/2, rate = m.pass/N, color = tone(m);
+          const cy = padT + i*rowH + rowH/2, rate = m.pass/m.n, color = tone(m);
           const lo = sx(m.ci[0]), hi = sx(m.ci[1]);
           // faint row guide, then the 95% CI whisker, then the dot on top
           svg.appendChild(el("line", { x1:x0, x2:x1, y1:cy, y2:cy, stroke:"var(--surface-2)", "stroke-width":1 }));
@@ -350,7 +345,7 @@
           svg.appendChild(el("circle", { cx:sx(rate), cy:cy, r:7, fill:color, stroke:"var(--surface)", "stroke-width":2 }));
           svg.appendChild(el("text", { x:x0-14, y:cy+1, "text-anchor":"end", class:"lbl", "dominant-baseline":"middle" }, m.short));
           if (m.note) svg.appendChild(el("text", { x:x0-14, y:cy+15, "text-anchor":"end", class:"lbl-2", "dominant-baseline":"middle" }, m.note));
-          svg.appendChild(el("text", { x:hi+12, y:cy+1, class:"val", "dominant-baseline":"middle" }, Math.round(rate*100)+"%   "+m.pass+"/"+N));
+          svg.appendChild(el("text", { x:hi+12, y:cy+1, class:"val", "dominant-baseline":"middle" }, Math.round(rate*100)+"%   "+m.pass+"/"+m.n));
         });
         svg.appendChild(el("line", { x1:x0, x2:x1, y1:H-padB, y2:H-padB, class:"ax" }));
         document.getElementById("chart-rank").appendChild(svg);
@@ -386,10 +381,11 @@
           "mercury-2.5":    { dx:-16, dy:5,  anc:"end" },
         };
         MODELS.forEach(m => {
-          const x = sx(m.cost), y = sy(m.pass/N), p = LAB[m.short], tx = x + p.dx;
+          const p = LAB[m.short] || { dx:16, dy:5, anc:"start" };
+          const x = sx(m.cost), y = sy(m.pass/m.n), tx = x + p.dx;
           svg.appendChild(el("text", { x:tx, y:y+p.dy-8, "text-anchor":p.anc, class:"lbl" }, m.short));
           svg.appendChild(el("text", { x:tx, y:y+p.dy+6, "text-anchor":p.anc, class:"lbl-2" },
-            "$"+m.cost.toFixed(4)+"  /  "+Math.round(m.pass/N*100)+"%"));
+            "$"+m.cost.toFixed(4)+"  /  "+Math.round(m.pass/m.n*100)+"%"));
           svg.appendChild(el("circle", { cx:x, cy:y, r:9, fill:tone(m), stroke:"var(--surface)", "stroke-width":2.5 }));
         });
         svg.appendChild(el("line", { x1:x0, x2:x1, y1:y0, y2:y0, class:"ax" }));
@@ -399,12 +395,7 @@
 
       /* heatmap */
       (function heat() {
-        const scenarios = ["single-easy","lakeview-classic","loop-lunch-hour","terrain-roster","full-house","mixed-windows","morning-overbook"];
-        const DATA = {
-          "ling-3.0-flash":[5,5,5,5,5,5,5], "haiku-4.5":[5,5,5,5,5,5,5],
-          "qwen3.7-flash":[5,5,5,5,4,4,5],  "gpt-oss-120b":[5,4,5,5,4,5,4],
-          "qwen3-8b":[5,0,5,5,2,5,5],       "mercury-2.5":[3,4,4,4,4,3,3],
-        };
+        const scenarios = DATA.scenarios;
         const cls = v => v===5?"c5":v>=3?"c4":v>=1?"c2":"c0";
         const t = document.getElementById("heat");
         const thead = document.createElement("thead"), hr = document.createElement("tr");
@@ -412,10 +403,10 @@
         scenarios.forEach(s => { const th = document.createElement("th"); th.innerHTML = s.replace("-","-<br>"); hr.appendChild(th); });
         thead.appendChild(hr); t.appendChild(thead);
         const tb = document.createElement("tbody");
-        Object.entries(DATA).forEach(([m, vals]) => {
+        DATA.models.forEach(m => {
           const tr = document.createElement("tr");
-          const th = document.createElement("th"); th.className="rowh"; th.textContent=m; tr.appendChild(th);
-          vals.forEach(v => { const td = document.createElement("td"); td.className=cls(v); td.textContent=v; td.title=m+": "+v+"/5"; tr.appendChild(td); });
+          const th = document.createElement("th"); th.className="rowh"; th.textContent=m.short; tr.appendChild(th);
+          m.cells.forEach(v => { const td = document.createElement("td"); td.className=cls(v); td.textContent=v; td.title=m.short+": "+v+"/"+(m.n/scenarios.length); tr.appendChild(td); });
           tb.appendChild(tr);
         });
         t.appendChild(tb);
@@ -423,19 +414,28 @@
 
       /* failure taxonomy */
       (function tax() {
-        const ROWS = [
-          { name:"backend_error",       n:12, cls:"infra",  label:"provider / our-bug" },
-          { name:"schema_thrash",       n:6,  cls:"strict", label:"referee too strict" },
-          { name:"fabricated_feasible", n:3,  cls:"comp",   label:"model reasoning" },
-          { name:"timeout",             n:2,  cls:"comp",   label:"model reasoning" },
-        ];
+        // outcome -> (bar colour class, plain-language cause)
+        const KIND = {
+          backend_error:       ["infra",  "provider / our-bug"],
+          schema_thrash:       ["strict", "referee too strict"],
+          fabricated_feasible: ["comp",   "model reasoning"],
+          false_infeasible:    ["comp",   "model reasoning"],
+          timeout:             ["comp",   "model reasoning"],
+          veto_livelock:       ["comp",   "model reasoning"],
+          prose_stall:         ["comp",   "model reasoning"],
+          no_submit:           ["comp",   "model reasoning"],
+        };
+        const rows = DATA.taxonomy;
+        if (!rows.length) { document.getElementById("taxonomy").style.display = "none"; return; }
+        const max = Math.max.apply(null, rows.map(r => r.n));
         const host = document.getElementById("tax");
-        ROWS.forEach(r => {
+        rows.forEach(r => {
+          const [cls, label] = KIND[r.name] || ["comp", "model reasoning"];
           const row = document.createElement("div");
-          row.className = "taxrow " + r.cls;
+          row.className = "taxrow " + cls;
           row.innerHTML =
-            `<div class="name">${r.name}<div class="kind">${r.label}</div></div>` +
-            `<div class="bar"><div class="fill" style="width:${(r.n/12*100).toFixed(1)}%">${r.n}</div></div>`;
+            `<div class="name">${r.name}<div class="kind">${label}</div></div>` +
+            `<div class="bar"><div class="fill" style="width:${(r.n/max*100).toFixed(1)}%">${r.n}</div></div>`;
           host.appendChild(row);
         });
       })();

@@ -48,6 +48,19 @@ from dog_walker.scenarios import SCENARIOS, scenario_prompt, seed_geocode_cache
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODELS_FILE = REPO_ROOT / "models.json"
 ARCHIVE_DIR = REPO_ROOT / "measurements"
+REPORT_DATA = REPO_ROOT / "site" / "src" / "data" / "measurement.json"
+
+# display names + notes the walker.purr.io report renders (the only
+# per-model prose the charts need; everything else derives from runs)
+SHORT = {
+    "inclusionai/ling-3.0-flash": "ling-3.0-flash",
+    "anthropic/claude-haiku-4.5": "haiku-4.5",
+    "qwen/qwen3.7-flash": "qwen3.7-flash",
+    "openai/gpt-oss-120b": "gpt-oss-120b",
+    "qwen/qwen3-8b": "qwen3-8b",
+    "inception/mercury-2.5": "mercury-2.5",
+}
+NOTE = {"qwen/qwen3-8b": "prior default"}
 
 DEFAULT_K = 5           # runs per (model, scenario)
 RUN_DEADLINE_S = 240    # wall-clock guard per single run
@@ -296,7 +309,82 @@ def count_desc(item: tuple) -> int:
     return -item[1]
 
 
+# ---------------------------------------------------------------------
+# report data: merge one or more archives into the compact JSON the
+# walker.purr.io report imports, so a re-run refreshes the charts by
+# rebuild, not by hand-editing. Later archives WIN per model, so a
+# targeted re-run (e.g. gpt-oss-120b under a bug fix) overrides that
+# model's rows from the full sweep while leaving the others untouched.
+# ---------------------------------------------------------------------
+
+
+def _rank_key(m: dict) -> tuple:
+    return (-m["pass"], m["cost"])
+
+
+def _tax_key(t: dict) -> int:
+    return -t["n"]
+
+
+def build_report_data(archive_paths: list[str], out_path: Path = REPORT_DATA) -> dict:
+    """Merge archives (in order; later wins per model) into the report's
+    data file: per-model pass rate + Wilson CI + median cost/latency +
+    per-scenario pass counts, plus the failure taxonomy and totals."""
+    model_runs: dict[str, list[dict]] = {}
+    meta = {}
+    for path in archive_paths:
+        d = json.loads(Path(path).read_text())
+        meta = {"generated_at": d.get("generated_at", ""),
+                "k": d.get("config", {}).get("k")}
+        for model, runs in by_key(d["runs"], "model").items():
+            model_runs[model] = runs      # later archive overrides
+
+    scenarios = list(SCENARIOS)
+    models, all_runs = [], []
+    for model, runs in model_runs.items():
+        all_runs.extend(runs)
+        agg = summarize(runs)
+        cells_by_scn = by_key(runs, "scenario")
+        cells = [sum(1 for r in cells_by_scn.get(s, []) if r["passed"])
+                 for s in scenarios]
+        lo, hi = wilson(agg["passes"], agg["n"])
+        models.append({
+            "id": model, "short": SHORT.get(model, model.split("/")[-1]),
+            "pass": agg["passes"], "n": agg["n"],
+            "ci": [round(lo, 2), round(hi, 2)],
+            "cost": agg["median_cost"], "sec": round(agg["median_seconds"]),
+            "cells": cells, "note": NOTE.get(model),
+        })
+    models.sort(key=_rank_key)
+
+    tax: dict[str, int] = {}
+    for r in all_runs:
+        if not r["passed"]:
+            tax[r["outcome"]] = tax.get(r["outcome"], 0) + 1
+    taxonomy = sorted(({"name": k, "n": v} for k, v in tax.items()), key=_tax_key)
+
+    data = {
+        "generated": (meta.get("generated_at") or "")[:10],
+        "totals": {"runs": len(all_runs),
+                   "cost": round(sum(r["cost"] for r in all_runs), 4),
+                   "models": len(models), "scenarios": len(scenarios),
+                   "k": meta.get("k")},
+        "scenarios": scenarios,
+        "models": models,
+        "taxonomy": taxonomy,
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(data, indent=2))
+    print(f"wrote {out_path}: {len(models)} models, {len(all_runs)} runs, "
+          f"${data['totals']['cost']}")
+    return data
+
+
 def main(argv: list[str]) -> None:
+    if argv and argv[0] == "--build-report":
+        paths = argv[1:] or sorted(str(p) for p in ARCHIVE_DIR.glob("measure-*.json"))
+        build_report_data(paths)
+        return
     opts = parse_args(argv)
     seed_geocode_cache()
     models = opts["models"] or default_models()

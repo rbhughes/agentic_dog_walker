@@ -1,0 +1,171 @@
+{
+  "generated": "2026-09-14",
+  "totals": {
+    "runs": 210,
+    "cost": 1.5958,
+    "models": 6,
+    "scenarios": 7,
+    "k": 5
+  },
+  "scenarios": [
+    "single-easy",
+    "lakeview-classic",
+    "loop-lunch-hour",
+    "terrain-roster",
+    "full-house",
+    "mixed-windows",
+    "morning-overbook"
+  ],
+  "models": [
+    {
+      "id": "inclusionai/ling-3.0-flash",
+      "short": "ling-3.0-flash",
+      "pass": 35,
+      "n": 35,
+      "ci": [
+        0.9,
+        1.0
+      ],
+      "cost": 0.00042,
+      "sec": 10,
+      "cells": [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+      ],
+      "note": null
+    },
+    {
+      "id": "anthropic/claude-haiku-4.5",
+      "short": "haiku-4.5",
+      "pass": 35,
+      "n": 35,
+      "ci": [
+        0.9,
+        1.0
+      ],
+      "cost": 0.026485,
+      "sec": 15,
+      "cells": [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+      ],
+      "note": null
+    },
+    {
+      "id": "qwen/qwen3.7-flash",
+      "short": "qwen3.7-flash",
+      "pass": 33,
+      "n": 35,
+      "ci": [
+        0.81,
+        0.98
+      ],
+      "cost": 0.000789,
+      "sec": 23,
+      "cells": [
+        5,
+        5,
+        5,
+        5,
+        4,
+        4,
+        5
+      ],
+      "note": null
+    },
+    {
+      "id": "openai/gpt-oss-120b",
+      "short": "gpt-oss-120b",
+      "pass": 32,
+      "n": 35,
+      "ci": [
+        0.78,
+        0.97
+      ],
+      "cost": 0.001975,
+      "sec": 52,
+      "cells": [
+        5,
+        4,
+        5,
+        5,
+        4,
+        5,
+        4
+      ],
+      "note": null
+    },
+    {
+      "id": "qwen/qwen3-8b",
+      "short": "qwen3-8b",
+      "pass": 27,
+      "n": 35,
+      "ci": [
+        0.61,
+        0.88
+      ],
+      "cost": 0.005511,
+      "sec": 49,
+      "cells": [
+        5,
+        0,
+        5,
+        5,
+        2,
+        5,
+        5
+      ],
+      "note": "prior default"
+    },
+    {
+      "id": "inception/mercury-2.5",
+      "short": "mercury-2.5",
+      "pass": 25,
+      "n": 35,
+      "ci": [
+        0.55,
+        0.84
+      ],
+      "cost": 0.001026,
+      "sec": 6,
+      "cells": [
+        3,
+        4,
+        4,
+        4,
+        4,
+        3,
+        3
+      ],
+      "note": null
+    }
+  ],
+  "taxonomy": [
+    {
+      "name": "backend_error",
+      "n": 12
+    },
+    {
+      "name": "schema_thrash",
+      "n": 6
+    },
+    {
+      "name": "fabricated_feasible",
+      "n": 3
+    },
+    {
+      "name": "timeout",
+      "n": 2
+    }
+  ]
+}
