@@ -1,5 +1,6 @@
 {
-  "generated_at": "2026-09-11T09:00:43.031614-05:00",
+  "generated_at": "2026-09-15T10:00:00.000000-05:00",
+  "source": "2026-09-14 measurement sweep (dog_walker.measure): 6 models × 7 scenarios × k=5 = 210 runs; labels carry measured pass rate and median cost per plan",
   "criteria": {
     "prompt_cap_per_m": 0.3,
     "completion_cap_per_m": 1.2,
@@ -11,28 +12,28 @@
   },
   "models": [
     {
-      "id": "qwen/qwen3-8b",
-      "label": "Qwen3 8B \u2014 the bake-off winner (default)"
+      "id": "inclusionai/ling-3.0-flash",
+      "label": "Ling 3.0 Flash — 100%, $0.0004/plan (default)"
     },
     {
       "id": "anthropic/claude-haiku-4.5",
-      "label": "Claude Haiku 4.5 \u2014 frontier contrast (pinned)"
-    },
-    {
-      "id": "inclusionai/ling-3.0-flash",
-      "label": "inclusionAI: Ling 3.0 Flash \u2014 $0.02/M in, qualified 30s"
+      "label": "Claude Haiku 4.5 — 100%, frontier contrast"
     },
     {
       "id": "qwen/qwen3.7-flash",
-      "label": "Qwen: Qwen3.7 Flash \u2014 $0.03/M in, qualified 27s"
+      "label": "Qwen3.7 Flash — 94%, $0.0008/plan"
     },
     {
       "id": "openai/gpt-oss-120b",
-      "label": "OpenAI: gpt-oss-120b \u2014 $0.04/M in, qualified 57s"
+      "label": "gpt-oss-120b — 91%, $0.0020/plan"
+    },
+    {
+      "id": "qwen/qwen3-8b",
+      "label": "Qwen3 8B — 77%, $0.0055/plan (prior default)"
     },
     {
       "id": "inception/mercury-2.5",
-      "label": "Inception: Mercury 2.5 \u2014 $0.04/M in, qualified 7s"
+      "label": "Mercury 2.5 — 71%, provider-flaky"
     }
   ],
   "rejected": [

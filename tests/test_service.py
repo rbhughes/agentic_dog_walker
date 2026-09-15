@@ -206,7 +206,7 @@ def test_discover_filters_by_price_and_capabilities():
         catalog_entry("cheap/no-tools", 0.05e-6, 0.2e-6, params=("reasoning",)),
         catalog_entry("cheap/no-think", 0.05e-6, 0.2e-6, params=("tools",)),
         catalog_entry("cheap/free:free", 0, 0),             # free alias
-        catalog_entry("qwen/qwen3-8b", 0.05e-6, 0.1e-6),    # pinned: skip
+        catalog_entry("inclusionai/ling-3.0-flash", 0.05e-6, 0.1e-6),  # pinned: skip
     ]
     ids = [c["id"] for c in qualify.discover(catalog)]
     assert ids == ["cheap/good"]

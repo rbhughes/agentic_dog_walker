@@ -48,7 +48,10 @@ except ImportError:
 # ---------------------------------------------------------------------
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "qwen/qwen3-8b"
+# ling-3.0-flash won the 2026-09-14 measurement sweep outright: 35/35
+# passes at ~$0.0004/plan and ~10s, cheapest and fastest of the field
+# (qwen3-8b, the prior default, placed 5th of 6). See dog_walker.measure.
+DEFAULT_MODEL = "inclusionai/ling-3.0-flash"
 
 MAX_ROUNDS = 14
 
@@ -255,9 +258,15 @@ _NEAR_DEG = 0.01
 
 def _call_args(tool_call: dict) -> dict:
     """Arguments from a RAW tool call, either dialect: Ollama stores a
-    dict, the OpenAI dialect a JSON string."""
+    dict, the OpenAI dialect a JSON string. Null-stripped, same as the
+    dispatch path: a model that fills an optional field with null
+    (comfort_min_f: null) would otherwise reach an auditor as None and
+    crash float() -- present-but-null defeats dict.get(key, default),
+    which returns None, not the default. Measured: this took two
+    gpt-oss-120b runs down as backend_error."""
     arguments = tool_call["function"]["arguments"]
-    return json.loads(arguments) if isinstance(arguments, str) else arguments
+    parsed = json.loads(arguments) if isinstance(arguments, str) else arguments
+    return without_nulls(parsed)
 
 
 def _clock_to_hours(hhmm: str) -> float:

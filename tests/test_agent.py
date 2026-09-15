@@ -7,7 +7,7 @@ behavioral claim per test, no network, no model.
 
 import json
 
-from dog_walker.agent import (audit_feasibility, audit_terrain_coverage, audit_weather_coverage, validate_call, without_nulls)
+from dog_walker.agent import (_call_args, audit_feasibility, audit_terrain_coverage, audit_weather_coverage, validate_call, without_nulls)
 
 # ---------------------------------------------------------------------
 # validate_call: the referee
@@ -258,6 +258,21 @@ def test_null_optional_field_is_stripped_not_bounced():
 def test_without_nulls_keeps_real_values():
     kept = without_nulls({"a": 0, "b": False, "c": None, "d": [{"e": None, "f": 1}]})
     assert kept == {"a": 0, "b": False, "d": [{"f": 1}]}
+
+
+def test_call_args_strips_nulls_so_auditors_dont_crash():
+    # a null optional in a raw check_weather call reached the weather
+    # auditor as None and crashed float() (measured: two gpt-oss-120b
+    # runs). _call_args must strip it the same way dispatch does.
+    tc = {"function": {"name": "check_weather", "arguments":
+          '{"lat": 41.9, "lon": -87.6, "comfort_min_f": null, "comfort_max_f": null}'}}
+    args = _call_args(tc)
+    assert "comfort_min_f" not in args and "comfort_max_f" not in args
+    assert args["lat"] == 41.9
+    # dict-dialect calls are stripped too
+    tc2 = {"function": {"name": "optimize_route", "arguments":
+           {"stops": [{"name": "Rex", "lat": 1.0, "lon": 2.0, "max_relief_m": None}]}}}
+    assert "max_relief_m" not in _call_args(tc2)["stops"][0]
 
 
 def test_feasibility_oracle_vetoes_rosy_plan_over_infeasible_route():

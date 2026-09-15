@@ -40,7 +40,7 @@ COMPLETION_CAP_PER_M = 1.20
 
 # always in the list, price cap notwithstanding
 PINNED: dict[str, str] = {
-    "qwen/qwen3-8b": "Qwen3 8B — the bake-off winner (default)",
+    "inclusionai/ling-3.0-flash": "Ling 3.0 Flash — measurement winner (default)",
     "anthropic/claude-haiku-4.5": "Claude Haiku 4.5 — frontier contrast (pinned)",
 }
 
