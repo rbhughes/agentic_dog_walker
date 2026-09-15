@@ -58,6 +58,53 @@
     </header>
 
     <main>
+      <section id="task">
+        <p class="eyebrow">The task being measured</p>
+        <h2>An agent that plans dog walks — and can't fake it</h2>
+        <p class="col">
+          Give it a starting point and a few dogs, each with an address, a walk
+          length, and constraints — a comfortable temperature band, a morning or
+          afternoon window, hills to avoid, medication to administer. A small
+          language model drives the whole thing: it geocodes the addresses, solves
+          the visiting order over real streets, checks the weather for each dog's
+          actual walk window, and returns a schedule with a per-dog safety verdict.
+          It does that by calling four tools and relaying what they return.
+        </p>
+        <div class="toolgrid">
+          <div class="tool">
+            <span class="tname mono">geocode_addresses</span>
+            <p>Street addresses → coordinates (Nominatim / OpenStreetMap).</p>
+          </div>
+          <div class="tool">
+            <span class="tname mono">check_weather</span>
+            <p>Hourly forecast for a place and time window → a deterministic
+              OK / CAUTION / SHORTEN / DO-NOT-WALK verdict.</p>
+          </div>
+          <div class="tool">
+            <span class="tname mono">check_terrain</span>
+            <p>Elevation around a dog's home → whether the hills exceed that
+              dog's stated tolerance.</p>
+          </div>
+          <div class="tool">
+            <span class="tname mono">optimize_route</span>
+            <p>Real walking distances (OpenRouteService + OR-Tools) → the visiting
+              order and a timed schedule; returns <span class="mono">feasible:false</span>
+              when the windows can't all be met.</p>
+          </div>
+        </div>
+        <p class="col">
+          The model is the least-trusted part of the system, and the measurement
+          only works because it's boxed in. A <b>referee</b> validates every tool
+          call against its schema before it runs. An <b>auditor</b> — plain code,
+          no AI — refuses a finished plan unless every dog's walk has a real
+          weather check at its own location. And the plan is submitted through a
+          structured <span class="mono">submit_plan</span> whose validated
+          arguments <em>are</em> the answer, never parsed from prose. Those checks
+          are what make a "pass" mean something — the deterministic finish line a
+          model can be measured against. <a href="/live">Watch it run live →</a>
+        </p>
+      </section>
+
       <section id="verdict">
         <p class="eyebrow">The verdict</p>
         <h2>A $0.0004 model ties the frontier — and the shipped default came second-to-last.</h2>
@@ -107,7 +154,7 @@
         <p class="eyebrow">Reliability</p>
         <h2>Pass rate, with the doubt drawn in</h2>
         <p class="col">
-          Five runs can't prove 100%. Each bar is the observed pass rate; the
+          Five runs can't prove 100%. Each dot is the observed pass rate; the
           whisker is the <strong>95% Wilson interval</strong> — the honest
           range the true rate could sit in given only 35 samples. Note how wide
           even a perfect score's floor is, and how far the bottom two models'
@@ -116,7 +163,7 @@
         <figure>
           <div class="chart-card">
             <p class="chart-title">Overall pass rate by model</p>
-            <p class="chart-sub">35 runs per model · bar = observed rate, whisker = 95% CI</p>
+            <p class="chart-sub">35 runs per model · dot = observed rate, whisker = 95% CI</p>
             <div id="chart-rank"></div>
           </div>
         </figure>
@@ -295,11 +342,12 @@
         }
         rows.forEach((m, i) => {
           const cy = padT + i*rowH + rowH/2, rate = m.pass/N, color = tone(m);
-          svg.appendChild(el("rect", { x:x0, y:cy-8, width:x1-x0, height:16, rx:8, fill:"var(--track)" }));
-          svg.appendChild(el("rect", { x:x0, y:cy-8, width:Math.max(sx(rate)-x0,0.1), height:16, rx:8, fill:color }));
           const lo = sx(m.ci[0]), hi = sx(m.ci[1]);
-          svg.appendChild(el("line", { x1:lo, x2:hi, y1:cy, y2:cy, stroke:"var(--ink)", "stroke-width":2, opacity:0.5 }));
-          [lo, hi].forEach(xx => svg.appendChild(el("line", { x1:xx, x2:xx, y1:cy-5, y2:cy+5, stroke:"var(--ink)", "stroke-width":2, opacity:0.5 })));
+          // faint row guide, then the 95% CI whisker, then the dot on top
+          svg.appendChild(el("line", { x1:x0, x2:x1, y1:cy, y2:cy, stroke:"var(--surface-2)", "stroke-width":1 }));
+          svg.appendChild(el("line", { x1:lo, x2:hi, y1:cy, y2:cy, stroke:"var(--ink)", "stroke-width":2, opacity:0.3 }));
+          [lo, hi].forEach(xx => svg.appendChild(el("line", { x1:xx, x2:xx, y1:cy-5, y2:cy+5, stroke:"var(--ink)", "stroke-width":2, opacity:0.3 })));
+          svg.appendChild(el("circle", { cx:sx(rate), cy:cy, r:7, fill:color, stroke:"var(--surface)", "stroke-width":2 }));
           svg.appendChild(el("text", { x:x0-14, y:cy+1, "text-anchor":"end", class:"lbl", "dominant-baseline":"middle" }, m.short));
           if (m.note) svg.appendChild(el("text", { x:x0-14, y:cy+15, "text-anchor":"end", class:"lbl-2", "dominant-baseline":"middle" }, m.note));
           svg.appendChild(el("text", { x:hi+12, y:cy+1, class:"val", "dominant-baseline":"middle" }, Math.round(rate*100)+"%   "+m.pass+"/"+N));
@@ -488,6 +536,13 @@
   p.col, .kicker { color: var(--ink-2); }
   p.col strong, .kicker b { color: var(--ink); font-weight: 600; }
   .kicker { font-size: 1.06rem; max-width: 64ch; }
+
+  /* tool grid (the explainer) */
+  .toolgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 24px 0; }
+  .tool { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; box-shadow: var(--shadow); }
+  .tool .tname { display:block; font-size: .92rem; font-weight: 600; color: var(--accent); margin-bottom: 5px; }
+  .tool p { margin: 0; font-size: .9rem; color: var(--ink-2); }
 
   /* verdict cards */
   .verdict { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 26px; }
