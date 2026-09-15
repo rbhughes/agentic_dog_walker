@@ -40,11 +40,12 @@ import data from "../data/measurement.json";
       <p class="eyebrow">Model evaluation · 210 live runs</p>
       <h1>Which model walks the dogs?</h1>
       <p class="lede">
-        Six small language models, one real tool-using agent, seven
-        walk-planning scenarios, five runs each. Graded not by another
-        model but by a <strong>deterministic oracle</strong> — the same
-        auditor the agent already has to satisfy. Here is how often each
-        one finishes, what it costs, and how it fails.
+        The agent below plans dog walks with real tools: it geocodes the
+        addresses, finds a route, and checks the weather and terrain for each
+        dog. I ran six cheap language models through it and graded every plan
+        against the agent's own <strong>deterministic checks</strong>, rather
+        than a second model's judgment. Across 210 runs, some held up perfectly,
+        some fell apart, and the cost between them spanned two orders of magnitude.
       </p>
       <div class="herocta">
         <a class="cta" href="/live">Run the agent yourself →</a>
@@ -324,7 +325,7 @@ import data from "../data/measurement.json";
       /* pass-rate ranking with Wilson whiskers */
       (function rank() {
         const rows = MODELS.slice().sort((a, b) => b.pass - a.pass || a.cost - b.cost);
-        const W = 860, rowH = 48, padT = 24, padB = 34, padL = 168, padR = 40;
+        const W = 860, rowH = 48, padT = 24, padB = 34, padL = 168, padR = 128;
         const H = padT + rows.length * rowH + padB;
         const x0 = padL, x1 = W - padR, dmin = 0.45;
         const sx = v => x0 + (v - dmin) / (1 - dmin) * (x1 - x0);
@@ -476,9 +477,11 @@ import data from "../data/measurement.json";
   }
   a { color: var(--accent); text-underline-offset: 2px; }
   .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-  .wrap, main { max-width: 1000px; }
+  .wrap, main { max-width: 840px; }
   main { margin: 0 auto; padding: 0 24px; width: 100%; }
-  .col { max-width: 66ch; }
+  /* paragraphs fill the same column as the cards and charts, so nothing
+     reads as inset or off-centre */
+  .col { max-width: none; }
 
   /* top nav — family chrome */
   .topnav {
@@ -505,11 +508,11 @@ import data from "../data/measurement.json";
 
   /* hero */
   .hero {
-    max-width: 1000px; margin: 0 auto; padding: 60px 24px 44px; width: 100%;
+    max-width: 840px; margin: 0 auto; padding: 60px 24px 44px; width: 100%;
     border-bottom: 1px solid var(--hairline);
   }
   h1 { font-size: clamp(2.3rem, 6vw, 3.8rem); line-height: 1.03; margin-bottom: 20px; }
-  .lede { font-size: 1.2rem; color: var(--ink-2); max-width: 60ch; margin: 0; }
+  .lede { font-size: 1.2rem; color: var(--ink-2); margin: 0; }
   .lede strong { color: var(--ink); font-weight: 600; }
   .herocta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 30px; }
   .cta {
@@ -535,7 +538,7 @@ import data from "../data/measurement.json";
   p { margin: 0 0 16px; }
   p.col, .kicker { color: var(--ink-2); }
   p.col strong, .kicker b { color: var(--ink); font-weight: 600; }
-  .kicker { font-size: 1.06rem; max-width: 64ch; }
+  .kicker { font-size: 1.06rem; }
 
   /* tool grid (the explainer) */
   .toolgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 24px 0; }
@@ -624,7 +627,7 @@ import data from "../data/measurement.json";
   .method p { font-size:.95rem; color: var(--ink-2); margin: 0; }
   .taxa { font-family: ui-monospace, Menlo, monospace; font-size:.8rem; }
 
-  footer { margin-top: auto; padding: 34px 24px 48px; max-width: 1000px; margin-left: auto; margin-right: auto; width: 100%; }
+  footer { margin-top: auto; padding: 34px 24px 48px; max-width: 840px; margin-left: auto; margin-right: auto; width: 100%; }
   footer p { font-size: 0.85rem; color: var(--muted); margin: 0.35rem 0; }
   footer .colophon { color: var(--ink-2); }
 
