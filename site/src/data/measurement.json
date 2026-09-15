@@ -1,8 +1,8 @@
 {
-  "generated": "2026-09-14",
+  "generated": "2026-09-15",
   "totals": {
     "runs": 210,
-    "cost": 1.5958,
+    "cost": 1.6232,
     "models": 6,
     "scenarios": 7,
     "k": 5
@@ -62,6 +62,28 @@
       "note": null
     },
     {
+      "id": "qwen/qwen3-8b",
+      "short": "qwen3-8b",
+      "pass": 34,
+      "n": 35,
+      "ci": [
+        0.85,
+        0.99
+      ],
+      "cost": 0.007367,
+      "sec": 54,
+      "cells": [
+        5,
+        5,
+        5,
+        5,
+        4,
+        5,
+        5
+      ],
+      "note": "prior default"
+    },
+    {
       "id": "qwen/qwen3.7-flash",
       "short": "qwen3.7-flash",
       "pass": 33,
@@ -86,46 +108,24 @@
     {
       "id": "openai/gpt-oss-120b",
       "short": "gpt-oss-120b",
-      "pass": 32,
+      "pass": 30,
       "n": 35,
       "ci": [
-        0.78,
-        0.97
+        0.71,
+        0.94
       ],
-      "cost": 0.001975,
-      "sec": 52,
+      "cost": 0.001858,
+      "sec": 68,
       "cells": [
         5,
+        3,
+        5,
         4,
-        5,
-        5,
-        4,
-        5,
-        4
-      ],
-      "note": null
-    },
-    {
-      "id": "qwen/qwen3-8b",
-      "short": "qwen3-8b",
-      "pass": 27,
-      "n": 35,
-      "ci": [
-        0.61,
-        0.88
-      ],
-      "cost": 0.005511,
-      "sec": 49,
-      "cells": [
-        5,
-        0,
-        5,
-        5,
-        2,
+        3,
         5,
         5
       ],
-      "note": "prior default"
+      "note": null
     },
     {
       "id": "inception/mercury-2.5",
@@ -153,19 +153,15 @@
   "taxonomy": [
     {
       "name": "backend_error",
-      "n": 12
-    },
-    {
-      "name": "schema_thrash",
-      "n": 6
+      "n": 15
     },
     {
       "name": "fabricated_feasible",
-      "n": 3
+      "n": 2
     },
     {
-      "name": "timeout",
-      "n": 2
+      "name": "prose_stall",
+      "n": 1
     }
   ]
 }

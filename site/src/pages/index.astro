@@ -120,11 +120,12 @@ import data from "../data/measurement.json";
 
       <section id="verdict">
         <p class="eyebrow">The verdict</p>
-        <h2>A $0.0004 model ties the frontier — and the shipped default came second-to-last.</h2>
+        <h2>A $0.0004 model ties the frontier — and the model that looked worst was mostly our own bug.</h2>
         <p class="kicker">
-          Two models finished all 35 runs. One costs <b>sixty-six times less</b>
-          than the other. The model that had been wired in as this site's
-          default placed fifth of six — so it isn't anymore.
+          Two models finished all 35 runs, and the cheaper one — <b>66× cheaper</b> —
+          is the new default. The bigger surprise came from the model that placed
+          last in the first sweep: most of its failures weren't the model at all,
+          but a bug in this harness. Fixing it moved the old default from 77% to 97%.
         </p>
         <div class="verdict">
           <div class="vcard win">
@@ -146,19 +147,22 @@ import data from "../data/measurement.json";
               <div class="fig"><div class="n">$0.0265</div><div class="u">median / plan</div></div>
               <div class="fig"><div class="n">15s</div><div class="u">median</div></div>
             </div>
-            <p>Also flawless — and it alone burned <b>72%</b> of the whole
+            <p>Also flawless — and it alone burned <b>70%</b> of the whole
               sweep's cost. The reliability is free; the certainty is not.</p>
           </div>
           <div class="vcard swap">
-            <div class="tag">Prior default</div>
+            <div class="tag">The harness's best catch</div>
             <div class="model">qwen/qwen3-8b</div>
             <div class="figs">
-              <div class="fig"><div class="n">77%</div><div class="u">27 / 35 passed</div></div>
-              <div class="fig"><div class="n">$0.0055</div><div class="u">median / plan</div></div>
-              <div class="fig"><div class="n">49s</div><div class="u">median</div></div>
+              <div class="fig"><div class="n">97%</div><div class="u">was 77%</div></div>
+              <div class="fig"><div class="n">$0.0074</div><div class="u">median / plan</div></div>
+              <div class="fig"><div class="n">54s</div><div class="u">median</div></div>
             </div>
-            <p>Fifth of six, pricier <em>and</em> slower than the cheaper models
-              that beat it. Demoted on the evidence.</p>
+            <p>It placed last in the first sweep. The harness traced the losses to
+              our own referee rejecting <span class="mono">max_relief_m: 0</span> — the
+              model's shorthand for "no hill limit." We fixed that; the re-run scores
+              97%, one truncated response short of perfect. The bug was ours, not the
+              model's. (Still not the default — ling is 18× cheaper.)</p>
           </div>
         </div>
       </section>
@@ -203,13 +207,15 @@ import data from "../data/measurement.json";
 
       <section id="breakdown">
         <p class="eyebrow">Where they break</p>
-        <h2>The same two scenarios do all the damage</h2>
+        <h2>One scenario carries most of the difficulty</h2>
         <p class="col">
-          Averages hide the shape of failure. Per scenario, out of five runs,
-          almost every loss lands in two columns: <strong>full-house</strong>
-          (one dog carrying every attribute at once) and
-          <strong>lakeview-classic</strong> (three dogs, comfort bands).
-          qwen3-8b doesn't just dip on Lakeview — it goes <strong>0 for 5</strong>.
+          Averages hide the shape of failure. Out of five runs per cell, the strong
+          models are near-perfect except on one column: <strong>full-house</strong> —
+          a single dog wearing every attribute at once (comfort band, meds, a morning
+          window, prep time, and hills). <span class="mono">mercury-2.5</span> is the
+          exception, thin across the board. And the first sweep's headline — the old
+          default going <strong>0 for 5</strong> on Lakeview — is gone: that was the
+          referee bug, now fixed, which is why qwen3-8b's row is almost solid green.
         </p>
         <div class="heat-scroll">
           <table class="heat" id="heat"></table>
@@ -226,25 +232,25 @@ import data from "../data/measurement.json";
         <p class="eyebrow">How they fail</p>
         <h2>Not all failures are the model's fault</h2>
         <p class="col">
-          Twenty-three runs didn't pass. A ranking that lumps them together
-          lies, because they aren't the same kind of thing. Split by cause,
-          most of the "failures" are <strong>plumbing</strong>, not reasoning —
-          and separating them is itself a finding the harness exists to produce.
+          Eighteen runs didn't pass, and lumping them into one number lies —
+          they aren't the same kind of thing. The largest category in the first
+          sweep, <strong>the referee being too strict</strong>, is gone entirely;
+          fixing it is what recovered qwen3-8b. What's left is mostly
+          infrastructure — a flaky provider, and long tool-call JSON that got
+          truncated — plus a couple of genuine model mistakes.
         </p>
         <div class="tax" id="tax"></div>
         <div class="legend">
           <span><span class="sw swcomp"></span> the model's reasoning</span>
-          <span><span class="sw swstrict"></span> our schema being strict</span>
           <span><span class="sw swinfra"></span> infrastructure / provider</span>
         </div>
 
         <div class="callout">
           <h3>The one that matters: fabricated feasibility</h3>
-          <p>Three runs — two from <span class="mono">mercury-2.5</span>, one from
-            <span class="mono">gpt-oss-120b</span> — declared the
+          <p>Two runs, both from <span class="mono">mercury-2.5</span>, declared the
             <span class="mono">morning-overbook</span> roster <b>solvable</b>. It
             isn't: four hour-long walks that must all start before noon cannot be
-            fit into one outing. The models called the route tool but <b>dropped
+            fit into one outing. The model called the route tool but <b>dropped
             the walk-window constraint</b>, so the deterministic tool saw an easy
             route and agreed.</p>
           <p>The in-loop auditor is blind here — it can only check the constraints
@@ -256,16 +262,17 @@ import data from "../data/measurement.json";
 
         <div class="callout warn">
           <h3>Reading the caveats honestly</h3>
-          <p><b>mercury-2.5's</b> 71% is mostly an availability story: 8 of its 10
-            losses were the provider returning no completion at all
-            (<span class="mono">KeyError: 'choices'</span>), not bad planning.
-            <b>gpt-oss-120b</b> lost two runs to a <span class="mono">float(None)</span>
-            bug in <em>our own</em> tool code — since fixed, which lifts its true
-            score to 34/35. And <b>qwen3-8b's</b> six schema-thrash losses were the
-            referee rejecting <span class="mono">max_relief_m: 0</span> — the model
-            meaning "no hill limit," our schema demanding ≥ 1. That's the same class
-            of brittleness a null-stripping fix already cured once; a hardened
-            referee would likely lift qwen3-8b well above 77%.</p>
+          <p><b>mercury-2.5's</b> 71% is mostly an availability story: 8 of its
+            losses were the provider returning no completion at all, not bad
+            planning. <b>gpt-oss-120b's</b> dip to 86% is the same shape — a burst
+            of malformed and truncated tool-call JSON on the heavier scenarios,
+            not its planning; the <span class="mono">float(None)</span> bug that
+            cost it two runs in the first sweep is fixed and gone. And the biggest
+            correction is <b>qwen3-8b</b>: its first-sweep 77% was almost entirely
+            our referee rejecting <span class="mono">max_relief_m: 0</span>. That's
+            fixed, and the re-run confirms it — 34/35, a twenty-point jump. The
+            lesson points back at the harness: a grader this strict catches your
+            own bugs before it catches the model's.</p>
         </div>
       </section>
 
@@ -276,7 +283,9 @@ import data from "../data/measurement.json";
           The task is dog-walk route planning: geocode addresses, solve the
           visiting order over real streets, check weather for each dog's actual
           walk window, respect terrain, medication, and comfort constraints, and
-          finish with a structured plan. <a href="/live">Try it live →</a>
+          finish with a structured plan. The numbers here combine the 2026-09-14
+          sweep with a 2026-09-15 re-run of the two models whose failures the
+          harness traced to bugs since fixed. <a href="/live">Try it live →</a>
         </p>
         <div class="method">
           <div>
@@ -313,7 +322,7 @@ import data from "../data/measurement.json";
 
     <footer>
       <p>
-        Sweep {data.generated} · {data.totals.runs} runs · {data.totals.models} models ×
+        Latest run {data.generated} · {data.totals.runs} runs · {data.totals.models} models ×
         {data.totals.scenarios} scenarios · k={data.totals.k} · ${data.totals.cost} ·
         harness <span class="mono">dog_walker.measure</span> · inference via OpenRouter.
       </p>
