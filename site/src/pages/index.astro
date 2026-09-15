@@ -1,7 +1,7 @@
 ---
-// walker.purr.io — the agent, watchable. Presets or a structured
-// custom roster go to the fossil service; the agent's event stream
-// renders live; the final plan renders from structured data only.
+// walker.purr.io — the measurement report is the front door. The
+// interactive demo lives at /live. Charts render client-side from the
+// 2026-09-14 sweep data; everything else is static.
 ---
 
 <!doctype html>
@@ -9,15 +9,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agentic Dog Walker</title>
+    <title>Which Model Walks the Dogs?</title>
     <link rel="icon" href="/purrio_2026.png" />
     <link rel="canonical" href="https://walker.purr.io/" />
     <meta
       name="description"
-      content="Watch a small language model plan dog walks: geocoding, route optimization, per-dog weather verdicts — every tool call streamed live. A modern LLM tool-use demonstration."
+      content="A 210-run measurement of six small language models on a real tool-using dog-walking agent — pass rates with confidence intervals, real cost per plan, and how they fail."
     />
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <nav class="topnav">
@@ -25,145 +29,369 @@
         <img src="/purrio_2026.png" alt="purr.io logo" />
       </a>
       <span class="brand">Agentic Dog Walker</span>
+      <a href="/live">Run it live</a>
       <a href="https://github.com/rbhughes/agentic_dog_walker">GitHub</a>
-      <span class="pill" id="status-pill">served from a laptop in a closet</span>
+      <span class="pill">measurement · 210 runs</span>
     </nav>
 
-    <header class="masthead">
-      <h1>Watch an agent plan dog walks</h1>
-      <p class="standfirst">
-        A small language model with four tools: an address lookup, a
-        route optimizer, a weather service, and a terrain check &mdash;
-        all returning deterministic verdicts it must relay, not invent.
-        Below, you can watch it work
-        &mdash; every tool call, every validation bounce, every audit
-        veto, streamed live. The interesting part isn't that it works;
-        it's the machinery that keeps a small model
-        honest.
+    <header class="hero">
+      <p class="eyebrow">Model evaluation · 210 live runs</p>
+      <h1>Which model walks the dogs?</h1>
+      <p class="lede">
+        Six small language models, one real tool-using agent, seven
+        walk-planning scenarios, five runs each. Graded not by another
+        model but by a <strong>deterministic oracle</strong> — the same
+        auditor the agent already has to satisfy. Here is how often each
+        one finishes, what it costs, and how it fails.
       </p>
+      <div class="herocta">
+        <a class="cta" href="/live">Run the agent yourself →</a>
+        <span class="ctahint">watch the live tool-calls at walker.purr.io/live</span>
+      </div>
+
+      <div class="statband">
+        <div class="stat"><div class="k">210</div><div class="l">live runs, all paid</div></div>
+        <div class="stat"><div class="k">$1.60</div><div class="l">total sweep cost</div></div>
+        <div class="stat"><div class="k">6×7</div><div class="l">models × scenarios</div></div>
+        <div class="stat"><div class="k">k=5</div><div class="l">runs per cell</div></div>
+      </div>
     </header>
 
     <main>
-      <section id="launcher">
-        <h2>Run a demo</h2>
-        <label class="modelrow">Model
-          <select id="model-select"><option value="">default</option></select>
-        </label>
-        <div id="preset-cards" class="cards">
-          <p class="muted">loading presets&hellip;</p>
+      <section id="verdict">
+        <p class="eyebrow">The verdict</p>
+        <h2>A $0.0004 model ties the frontier — and the shipped default came second-to-last.</h2>
+        <p class="kicker">
+          Two models finished all 35 runs. One costs <b>sixty-six times less</b>
+          than the other. The model that had been wired in as this site's
+          default placed fifth of six — so it isn't anymore.
+        </p>
+        <div class="verdict">
+          <div class="vcard win">
+            <div class="tag">Best value · new default</div>
+            <div class="model">inclusionai/ling-3.0-flash</div>
+            <div class="figs">
+              <div class="fig"><div class="n">100%</div><div class="u">35 / 35 passed</div></div>
+              <div class="fig"><div class="n">$0.0004</div><div class="u">median / plan</div></div>
+              <div class="fig"><div class="n">10s</div><div class="u">median</div></div>
+            </div>
+            <p>Perfect, fastest of the cheap tier, and the least expensive model
+              in the sweep. Now the site default.</p>
+          </div>
+          <div class="vcard pricey">
+            <div class="tag">Frontier baseline</div>
+            <div class="model">anthropic/claude-haiku-4.5</div>
+            <div class="figs">
+              <div class="fig"><div class="n">100%</div><div class="u">35 / 35 passed</div></div>
+              <div class="fig"><div class="n">$0.0265</div><div class="u">median / plan</div></div>
+              <div class="fig"><div class="n">15s</div><div class="u">median</div></div>
+            </div>
+            <p>Also flawless — and it alone burned <b>72%</b> of the whole
+              sweep's cost. The reliability is free; the certainty is not.</p>
+          </div>
+          <div class="vcard swap">
+            <div class="tag">Prior default</div>
+            <div class="model">qwen/qwen3-8b</div>
+            <div class="figs">
+              <div class="fig"><div class="n">77%</div><div class="u">27 / 35 passed</div></div>
+              <div class="fig"><div class="n">$0.0055</div><div class="u">median / plan</div></div>
+              <div class="fig"><div class="n">49s</div><div class="u">median</div></div>
+            </div>
+            <p>Fifth of six, pricier <em>and</em> slower than the cheaper models
+              that beat it. Demoted on the evidence.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="ranking">
+        <p class="eyebrow">Reliability</p>
+        <h2>Pass rate, with the doubt drawn in</h2>
+        <p class="col">
+          Five runs can't prove 100%. Each bar is the observed pass rate; the
+          whisker is the <strong>95% Wilson interval</strong> — the honest
+          range the true rate could sit in given only 35 samples. Note how wide
+          even a perfect score's floor is, and how far the bottom two models'
+          intervals reach.
+        </p>
+        <figure>
+          <div class="chart-card">
+            <p class="chart-title">Overall pass rate by model</p>
+            <p class="chart-sub">35 runs per model · bar = observed rate, whisker = 95% CI</p>
+            <div id="chart-rank"></div>
+          </div>
+        </figure>
+      </section>
+
+      <section id="cost">
+        <p class="eyebrow">Cost vs. reliability</p>
+        <h2>The frontier tax</h2>
+        <p class="col">
+          Plot what a plan costs against how often it lands and the trade-off
+          stops being abstract. The <strong>upper-left</strong> is the prize:
+          reliable and cheap. <span class="mono">ling-3.0-flash</span> sits
+          there almost alone. <span class="mono">haiku-4.5</span> matches its
+          reliability two orders of magnitude to the right.
+        </p>
+        <figure>
+          <div class="chart-card">
+            <p class="chart-title">Median cost per plan × pass rate</p>
+            <p class="chart-sub">cost axis is logarithmic · each point is one model</p>
+            <div id="chart-cost"></div>
+          </div>
+        </figure>
+      </section>
+
+      <section id="breakdown">
+        <p class="eyebrow">Where they break</p>
+        <h2>The same two scenarios do all the damage</h2>
+        <p class="col">
+          Averages hide the shape of failure. Per scenario, out of five runs,
+          almost every loss lands in two columns: <strong>full-house</strong>
+          (one dog carrying every attribute at once) and
+          <strong>lakeview-classic</strong> (three dogs, comfort bands).
+          qwen3-8b doesn't just dip on Lakeview — it goes <strong>0 for 5</strong>.
+        </p>
+        <div class="heat-scroll">
+          <table class="heat" id="heat"></table>
+        </div>
+        <div class="heat-note">
+          <span><span class="sw sw5"></span> 5/5 clean</span>
+          <span><span class="sw sw4"></span> 3–4 / 5</span>
+          <span><span class="sw sw2"></span> 1–2 / 5</span>
+          <span><span class="sw sw0"></span> 0 / 5 — wholesale failure</span>
+        </div>
+      </section>
+
+      <section id="taxonomy">
+        <p class="eyebrow">How they fail</p>
+        <h2>Not all failures are the model's fault</h2>
+        <p class="col">
+          Twenty-three runs didn't pass. A ranking that lumps them together
+          lies, because they aren't the same kind of thing. Split by cause,
+          most of the "failures" are <strong>plumbing</strong>, not reasoning —
+          and separating them is itself a finding the harness exists to produce.
+        </p>
+        <div class="tax" id="tax"></div>
+        <div class="legend">
+          <span><span class="sw swcomp"></span> the model's reasoning</span>
+          <span><span class="sw swstrict"></span> our schema being strict</span>
+          <span><span class="sw swinfra"></span> infrastructure / provider</span>
         </div>
 
-        <details id="custom">
-          <summary>&hellip;or build a custom roster</summary>
-          <form id="custom-form">
-            <div class="formrow">
-              <label>Start address
-                <input name="start_address" required minlength="4" maxlength="120"
-                  placeholder="Wrigley Field, Chicago" />
-              </label>
-            </div>
-            <div id="pet-rows"></div>
-            <div class="startsummary">
-              <span class="summary-label">Suggested start</span>
-              <output id="suggested-start" class="suggest-readout">09:00</output>
-              <span class="fieldhint">flexible &mdash; derived from the dogs'
-                walk windows; the walker sets the real time from the route</span>
-            </div>
-            <div class="formrow">
-              <button type="button" id="add-pet">+ add dog</button>
-              <button type="submit" class="primary">Plan the walks</button>
-            </div>
-            <p class="muted small">
-              Up to 6 dogs. Walks are 20, 30, or 60 minutes &mdash; the
-              three products a dog walker actually sells. Custom runs
-              are rate-limited; one plan runs at a time.
-            </p>
-          </form>
-        </details>
-      </section>
-
-      <section id="run" hidden>
-        <div class="runhead">
-          <h2 id="run-title">Planning&hellip;</h2>
-          <button id="reset" class="reset" hidden>&#8634; Start over</button>
+        <div class="callout">
+          <h3>The one that matters: fabricated feasibility</h3>
+          <p>Three runs — two from <span class="mono">mercury-2.5</span>, one from
+            <span class="mono">gpt-oss-120b</span> — declared the
+            <span class="mono">morning-overbook</span> roster <b>solvable</b>. It
+            isn't: four hour-long walks that must all start before noon cannot be
+            fit into one outing. The models called the route tool but <b>dropped
+            the walk-window constraint</b>, so the deterministic tool saw an easy
+            route and agreed.</p>
+          <p>The in-loop auditor is blind here — it can only check the constraints
+            the model actually passes. The measurement caught it anyway, because
+            the harness knows the right answer independently. <b>That is the whole
+            thesis:</b> you can measure an agent honestly only when the task has a
+            checkable finish line the model can't talk its way past.</p>
         </div>
-        <div id="trace" class="trace"></div>
+
+        <div class="callout warn">
+          <h3>Reading the caveats honestly</h3>
+          <p><b>mercury-2.5's</b> 71% is mostly an availability story: 8 of its 10
+            losses were the provider returning no completion at all
+            (<span class="mono">KeyError: 'choices'</span>), not bad planning.
+            <b>gpt-oss-120b</b> lost two runs to a <span class="mono">float(None)</span>
+            bug in <em>our own</em> tool code — since fixed, which lifts its true
+            score to 34/35. And <b>qwen3-8b's</b> six schema-thrash losses were the
+            referee rejecting <span class="mono">max_relief_m: 0</span> — the model
+            meaning "no hill limit," our schema demanding ≥ 1. That's the same class
+            of brittleness a null-stripping fix already cured once; a hardened
+            referee would likely lift qwen3-8b well above 77%.</p>
+        </div>
       </section>
 
-      <section id="result" hidden>
-        <h2>The plan</h2>
-        <div id="verdicts" class="cards"></div>
-        <div id="map" class="map-box"></div>
-        <p class="mapnote">
-          Street-following route from OpenRouteService; ordering by
-          OR-Tools. The map draws from the route tool's own GeoJSON
-          &mdash; never from the model's retelling.
+      <section id="method">
+        <p class="eyebrow">How it was measured</p>
+        <h2>A grader that can't be charmed</h2>
+        <p class="col">
+          The task is dog-walk route planning: geocode addresses, solve the
+          visiting order over real streets, check weather for each dog's actual
+          walk window, respect terrain, medication, and comfort constraints, and
+          finish with a structured plan. <a href="/live">Try it live →</a>
         </p>
-        <ol id="timeline" class="timeline"></ol>
-        <p id="advice" class="advice"></p>
-      </section>
-
-      <section id="about">
-        <h2>How it works</h2>
-        <p>
-          The agent is a hand-rolled loop &mdash; no framework &mdash;
-          around a small language model doing native tool calling
-          (pick one above; the trace shows which is running).
-          Three mechanisms keep it honest: a <strong>referee</strong>
-          that validates every tool call against its schema before
-          anything executes (violations bounce back as errors the
-          model reads and corrects); an <strong>auditor</strong> &mdash;
-          plain code, no AI &mdash; that refuses to accept a finished
-          plan until every dog's actual walk interval has a weather
-          check at that dog's location; and a <strong>structured
-          finish line</strong>: the model ends by calling a
-          <code>submit_plan</code> tool whose validated arguments are
-          the final plan. Weather verdicts come from
-          threshold tables in code, not from the model's judgment
-          &mdash; the model relays them and plans around them.
-        </p>
-        <h2>The tools</h2>
-        <ul class="tools">
-          <li><strong>geocode_addresses</strong> &mdash; turns street
-            addresses into coordinates
-            (Nominatim / OpenStreetMap; batched and cached).</li>
-          <li><strong>check_weather</strong> &mdash; hourly forecast
-            for a place, date, and time window (Open-Meteo), reduced
-            in code to a deterministic verdict: OK, CAUTION, SHORTEN,
-            or DO&nbsp;NOT&nbsp;WALK.</li>
-          <li><strong>check_terrain</strong> &mdash; samples elevation
-            around a dog's home (Open-Meteo) and scores the hilliness
-            against that dog's tolerance &mdash; for dogs that can't
-            take steep ground.</li>
-          <li><strong>optimize_route</strong> &mdash; real
-            street-walking distances (OpenRouteService) fed to a
-            route-ordering solver (OR-Tools), returning the visiting
-            order, each dog's walk interval, and the map geometry. With
-            medication deadlines it solves for a time that meets them,
-            or reports honestly that no order can.</li>
-          <li><strong>submit_plan</strong> &mdash; the finish line: a
-            tool with no implementation, whose schema-validated
-            arguments are the plan itself.</li>
-        </ul>
-        <p>
-          The service runs on a retired laptop in a closet (the
-          inference is rented per-token); the whole stack costs about
-          a dollar a month. Source, tests, and the full build history:
-          <a href="https://github.com/rbhughes/agentic_dog_walker">the repo</a>.
-        </p>
+        <div class="method">
+          <div>
+            <h3><span class="step">01</span> Deterministic grade</h3>
+            <p>A run passes iff it reaches a schema-validated
+              <span class="mono">submit_plan</span> whose
+              <span class="mono">feasible</span> flag matches the scenario's known
+              answer. No model judges another. All seven scenarios' answers were
+              checked against the solver before the sweep.</p>
+          </div>
+          <div>
+            <h3><span class="step">02</span> Real cost &amp; latency</h3>
+            <p>Dollars, not token estimates. Every model round's OpenRouter usage —
+              prompt and completion tokens plus the actual charge — is summed per
+              plan, so cost-per-run is measured, not modeled.</p>
+          </div>
+          <div>
+            <h3><span class="step">03</span> Five runs, real intervals</h3>
+            <p>Each of the 42 model×scenario cells runs five times. Pass rates carry
+              a Wilson score interval, so "5/5" and "50/50" are never mistaken for
+              the same confidence.</p>
+          </div>
+          <div>
+            <h3><span class="step">04</span> Failures kept whole</h3>
+            <p>Every failing run's full transcript is archived and sorted into a
+              taxonomy from the event stream —
+              <span class="taxa">veto_livelock, schema_thrash, prose_stall,
+              fabricated_feasible, false_infeasible, backend_error, timeout</span>.
+              The rejects are the content.</p>
+          </div>
+        </div>
       </section>
     </main>
 
     <footer>
       <p>
-        Geocoding by Nominatim/OpenStreetMap. Weather by Open-Meteo.
-        Routing by OpenRouteService + OR-Tools. Basemap by
-        <a href="https://openfreemap.org">OpenFreeMap</a>.
+        Sweep 2026-09-14 · 210 runs · 6 models × 7 scenarios · k=5 · $1.596 ·
+        harness <span class="mono">dog_walker.measure</span> · inference via OpenRouter.
       </p>
-      <p class="colophon">A <a href="https://purr.io">purr.io</a> project &middot; &copy; 2026 &middot; built in the open</p>
+      <p class="colophon">A <a href="https://purr.io">purr.io</a> project · © 2026 · built in the open</p>
     </footer>
 
-    <script src="../scripts/app.js"></script>
+    <script>
+      const MODELS = [
+        { id:"inclusionai/ling-3.0-flash", short:"ling-3.0-flash",  pass:35, ci:[0.90,1.00], cost:0.0004, sec:10 },
+        { id:"anthropic/claude-haiku-4.5", short:"haiku-4.5",       pass:35, ci:[0.90,1.00], cost:0.0265, sec:15 },
+        { id:"qwen/qwen3.7-flash",         short:"qwen3.7-flash",   pass:33, ci:[0.81,0.98], cost:0.0008, sec:23 },
+        { id:"openai/gpt-oss-120b",        short:"gpt-oss-120b",    pass:32, ci:[0.78,0.97], cost:0.0020, sec:52 },
+        { id:"qwen/qwen3-8b",              short:"qwen3-8b",        pass:27, ci:[0.61,0.88], cost:0.0055, sec:49, note:"prior default" },
+        { id:"inception/mercury-2.5",      short:"mercury-2.5",     pass:25, ci:[0.55,0.84], cost:0.0010, sec:6 },
+      ];
+      const N = 35;
+      const PASS = "#4a6fa5", POOR = "#cc6137";      // reliable vs poor (CVD-safe blue/terracotta)
+      const tone = m => (m.pass / N >= 0.90 ? PASS : POOR);
+      const SVGNS = "http://www.w3.org/2000/svg";
+      function el(tag, attrs, text) {
+        const n = document.createElementNS(SVGNS, tag);
+        for (const k in attrs) n.setAttribute(k, attrs[k]);
+        if (text != null) n.textContent = text;
+        return n;
+      }
+
+      /* pass-rate ranking with Wilson whiskers */
+      (function rank() {
+        const rows = MODELS.slice().sort((a, b) => b.pass - a.pass || a.cost - b.cost);
+        const W = 860, rowH = 48, padT = 24, padB = 34, padL = 168, padR = 40;
+        const H = padT + rows.length * rowH + padB;
+        const x0 = padL, x1 = W - padR, dmin = 0.45;
+        const sx = v => x0 + (v - dmin) / (1 - dmin) * (x1 - x0);
+        const svg = el("svg", { viewBox:`0 0 ${W} ${H}`, role:"img",
+          "aria-label":"Pass rate by model with 95% confidence intervals" });
+        for (let t = 0.5; t <= 1.001; t += 0.1) {
+          const x = sx(t);
+          svg.appendChild(el("line", { x1:x, x2:x, y1:padT-6, y2:H-padB, class:"grid" }));
+          svg.appendChild(el("text", { x, y:H-padB+18, "text-anchor":"middle", class:"tk" }, Math.round(t*100)+"%"));
+        }
+        rows.forEach((m, i) => {
+          const cy = padT + i*rowH + rowH/2, rate = m.pass/N, color = tone(m);
+          svg.appendChild(el("rect", { x:x0, y:cy-8, width:x1-x0, height:16, rx:8, fill:"var(--track)" }));
+          svg.appendChild(el("rect", { x:x0, y:cy-8, width:Math.max(sx(rate)-x0,0.1), height:16, rx:8, fill:color }));
+          const lo = sx(m.ci[0]), hi = sx(m.ci[1]);
+          svg.appendChild(el("line", { x1:lo, x2:hi, y1:cy, y2:cy, stroke:"var(--ink)", "stroke-width":2, opacity:0.5 }));
+          [lo, hi].forEach(xx => svg.appendChild(el("line", { x1:xx, x2:xx, y1:cy-5, y2:cy+5, stroke:"var(--ink)", "stroke-width":2, opacity:0.5 })));
+          svg.appendChild(el("text", { x:x0-14, y:cy+1, "text-anchor":"end", class:"lbl", "dominant-baseline":"middle" }, m.short));
+          if (m.note) svg.appendChild(el("text", { x:x0-14, y:cy+15, "text-anchor":"end", class:"lbl-2", "dominant-baseline":"middle" }, m.note));
+          svg.appendChild(el("text", { x:hi+12, y:cy+1, class:"val", "dominant-baseline":"middle" }, Math.round(rate*100)+"%   "+m.pass+"/"+N));
+        });
+        svg.appendChild(el("line", { x1:x0, x2:x1, y1:H-padB, y2:H-padB, class:"ax" }));
+        document.getElementById("chart-rank").appendChild(svg);
+      })();
+
+      /* cost vs reliability scatter */
+      (function cost() {
+        const W = 860, H = 470, padT = 26, padB = 56, padL = 66, padR = 34;
+        const x0 = padL, x1 = W - padR, y0 = H - padB, y1 = padT;
+        const cmin = 0.0003, cmax = 0.03, lx = v => Math.log10(v);
+        const sx = v => x0 + (lx(v)-lx(cmin))/(lx(cmax)-lx(cmin)) * (x1-x0);
+        const ymin = 0.68, ymax = 1.005, sy = v => y0 - (v-ymin)/(ymax-ymin) * (y0-y1);
+        const svg = el("svg", { viewBox:`0 0 ${W} ${H}`, role:"img",
+          "aria-label":"Median cost per plan versus pass rate" });
+        for (let t = 0.7; t <= 1.001; t += 0.1) {
+          const y = sy(t);
+          svg.appendChild(el("line", { x1:x0, x2:x1, y1:y, y2:y, class:"grid" }));
+          svg.appendChild(el("text", { x:x0-12, y:y+4, "text-anchor":"end", class:"tk" }, Math.round(t*100)+"%"));
+        }
+        [0.0005,0.001,0.002,0.005,0.01,0.02].forEach(v => {
+          const x = sx(v);
+          svg.appendChild(el("line", { x1:x, x2:x, y1:y1-4, y2:y0, class:"grid" }));
+          svg.appendChild(el("text", { x, y:y0+18, "text-anchor":"middle", class:"tk" }, "$"+v));
+        });
+        svg.appendChild(el("text", { x:(x0+x1)/2, y:H-14, "text-anchor":"middle", class:"lbl-2" }, "median cost per plan  (log scale)"));
+        svg.appendChild(el("text", { x:16, y:(y0+y1)/2, "text-anchor":"middle", class:"lbl-2", transform:`rotate(-90 16 ${(y0+y1)/2})` }, "pass rate"));
+        const LAB = {
+          "ling-3.0-flash": { dx:16,  dy:5,  anc:"start" },
+          "haiku-4.5":      { dx:-16, dy:5,  anc:"end" },
+          "qwen3.7-flash":  { dx:0,   dy:30, anc:"middle" },
+          "gpt-oss-120b":   { dx:16,  dy:5,  anc:"start" },
+          "qwen3-8b":       { dx:16,  dy:5,  anc:"start" },
+          "mercury-2.5":    { dx:-16, dy:5,  anc:"end" },
+        };
+        MODELS.forEach(m => {
+          const x = sx(m.cost), y = sy(m.pass/N), p = LAB[m.short], tx = x + p.dx;
+          svg.appendChild(el("text", { x:tx, y:y+p.dy-8, "text-anchor":p.anc, class:"lbl" }, m.short));
+          svg.appendChild(el("text", { x:tx, y:y+p.dy+6, "text-anchor":p.anc, class:"lbl-2" },
+            "$"+m.cost.toFixed(4)+"  /  "+Math.round(m.pass/N*100)+"%"));
+          svg.appendChild(el("circle", { cx:x, cy:y, r:9, fill:tone(m), stroke:"var(--surface)", "stroke-width":2.5 }));
+        });
+        svg.appendChild(el("line", { x1:x0, x2:x1, y1:y0, y2:y0, class:"ax" }));
+        svg.appendChild(el("line", { x1:x0, x2:x0, y1:y0, y2:y1, class:"ax" }));
+        document.getElementById("chart-cost").appendChild(svg);
+      })();
+
+      /* heatmap */
+      (function heat() {
+        const scenarios = ["single-easy","lakeview-classic","loop-lunch-hour","terrain-roster","full-house","mixed-windows","morning-overbook"];
+        const DATA = {
+          "ling-3.0-flash":[5,5,5,5,5,5,5], "haiku-4.5":[5,5,5,5,5,5,5],
+          "qwen3.7-flash":[5,5,5,5,4,4,5],  "gpt-oss-120b":[5,4,5,5,4,5,4],
+          "qwen3-8b":[5,0,5,5,2,5,5],       "mercury-2.5":[3,4,4,4,4,3,3],
+        };
+        const cls = v => v===5?"c5":v>=3?"c4":v>=1?"c2":"c0";
+        const t = document.getElementById("heat");
+        const thead = document.createElement("thead"), hr = document.createElement("tr");
+        hr.appendChild(document.createElement("th"));
+        scenarios.forEach(s => { const th = document.createElement("th"); th.innerHTML = s.replace("-","-<br>"); hr.appendChild(th); });
+        thead.appendChild(hr); t.appendChild(thead);
+        const tb = document.createElement("tbody");
+        Object.entries(DATA).forEach(([m, vals]) => {
+          const tr = document.createElement("tr");
+          const th = document.createElement("th"); th.className="rowh"; th.textContent=m; tr.appendChild(th);
+          vals.forEach(v => { const td = document.createElement("td"); td.className=cls(v); td.textContent=v; td.title=m+": "+v+"/5"; tr.appendChild(td); });
+          tb.appendChild(tr);
+        });
+        t.appendChild(tb);
+      })();
+
+      /* failure taxonomy */
+      (function tax() {
+        const ROWS = [
+          { name:"backend_error",       n:12, cls:"infra",  label:"provider / our-bug" },
+          { name:"schema_thrash",       n:6,  cls:"strict", label:"referee too strict" },
+          { name:"fabricated_feasible", n:3,  cls:"comp",   label:"model reasoning" },
+          { name:"timeout",             n:2,  cls:"comp",   label:"model reasoning" },
+        ];
+        const host = document.getElementById("tax");
+        ROWS.forEach(r => {
+          const row = document.createElement("div");
+          row.className = "taxrow " + r.cls;
+          row.innerHTML =
+            `<div class="name">${r.name}<div class="kind">${r.label}</div></div>` +
+            `<div class="bar"><div class="fill" style="width:${(r.n/12*100).toFixed(1)}%">${r.n}</div></div>`;
+          host.appendChild(row);
+        });
+      })();
+    </script>
   </body>
 </html>
 
@@ -171,6 +399,7 @@
   :root {
     --page: #f3f4f6;
     --surface: #ffffff;
+    --surface-2: #eef0f3;
     --ink: #262e42;
     --ink-2: #5b6577;
     --muted: #9aa0ab;
@@ -179,232 +408,176 @@
     --accent: #4a6fa5;
     --brand: #cc6137;
     --gold: #eeb63f;
+    --track: #e7e9ee;
     --ok: #2f7d33;
     --caution: #b26a00;
-    --shorten: #d7301f;
     --danger: #990000;
+    /* heatmap tints (bg / text) */
+    --c5-bg: #e4ecf5; --c5-fg: #3a5f96;
+    --c4-bg: #f7ead0; --c4-fg: #9a6a12;
+    --c2-bg: #f6ddd3; --c2-fg: #b8481f;
+    --c0-bg: #f3d2d2; --c0-fg: #990000;
+    --shadow: 0 1px 2px rgba(38,46,66,.05), 0 10px 28px rgba(38,46,66,.07);
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0;
-    background: var(--page);
-    color: var(--ink);
-    font: 15px/1.6 Poppins, system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    background: var(--page); color: var(--ink);
+    font: 16px/1.62 Poppins, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  a { color: var(--accent); }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  .wrap, main { max-width: 1000px; }
+  main { margin: 0 auto; padding: 0 24px; width: 100%; }
+  .col { max-width: 66ch; }
+
+  /* top nav — family chrome */
   .topnav {
-    display: flex; align-items: center; gap: 0.6rem;
-    padding: 0.55rem 2.1rem;
-    border-bottom: 1px solid var(--hairline);
-    background: var(--surface);
-    flex-wrap: wrap;
+    display: flex; align-items: center; gap: 0.7rem;
+    padding: 0.55rem 2.1rem; border-bottom: 1px solid var(--hairline);
+    background: var(--surface); flex-wrap: wrap;
   }
   .topnav .logo img { height: 26px; width: 26px; display: block; border-radius: 6px; }
-  .topnav .brand { font-weight: 700; color: var(--brand); margin-right: 0.4rem; }
+  .topnav .brand { font-weight: 700; color: var(--brand); margin-right: 0.3rem; }
+  .topnav a { text-decoration: none; font-size: 0.92rem; font-weight: 500; }
+  .topnav a[href="/live"] { color: var(--brand); font-weight: 600; }
   .pill {
-    margin-left: auto;
-    font-size: 0.75rem; color: var(--ink-2);
+    margin-left: auto; font-size: 0.75rem; color: var(--ink-2);
     border: 1px solid var(--hairline); border-radius: 999px;
-    padding: 0.15rem 0.6rem; background: var(--page);
+    padding: 0.15rem 0.7rem; background: var(--page);
+    font-variant-numeric: tabular-nums;
   }
-  .masthead { max-width: 880px; margin: 0 auto; padding: 2rem 2.1rem 0.5rem; }
-  h1 { margin: 0 0 0.6rem; font-size: 1.9rem; letter-spacing: -0.01em; }
-  .standfirst { color: var(--ink-2); font-size: 1.05rem; max-width: 62ch; }
-  main { max-width: 880px; margin: 0 auto; padding: 0 2.1rem 2rem; }
-  h2 { font-size: 1.2rem; margin: 1.6rem 0 0.6rem; }
-  .modelrow {
-    display: flex; flex-direction: row; align-items: center;
-    gap: 0.5rem; margin: 0 0 0.8rem; font-size: 0.9rem;
-  }
-  .modelrow select { max-width: 100%; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.8rem; }
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 12px; padding: 0.9rem 1rem;
-  }
-  .card h3 { margin: 0 0 0.25rem; font-size: 1.02rem; }
-  .card p { margin: 0.2rem 0 0.6rem; color: var(--ink-2); font-size: 0.9rem; }
-  .card button, .primary {
-    background: var(--gold); color: var(--ink); border: 0; border-radius: 8px;
-    padding: 0.45rem 0.9rem; font-weight: 700; cursor: pointer;
-  }
-  button:disabled { opacity: 0.5; cursor: default; }
-  #custom { margin-top: 1rem; }
-  #custom summary { cursor: pointer; color: var(--accent); font-weight: 600; }
-  #custom-form {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 12px; padding: 1rem; margin-top: 0.6rem;
-  }
-  .formrow { display: flex; gap: 0.8rem; align-items: start; flex-wrap: wrap; margin: 0.5rem 0; }
-  label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; color: var(--ink-2); }
-  input, select {
-    font: inherit; padding: 0.35rem 0.5rem;
-    border: 1px solid var(--hairline); border-radius: 7px; background: #fff;
-  }
-  .petrow { position: relative; display: flex; gap: 0.6rem;
-    align-items: end; flex-wrap: wrap;
-    margin: 0.4rem 0 0.9rem; padding: 0.2rem 2rem 0.7rem 0;
-    border-bottom: 1px dashed var(--hairline); }
-  /* remove-this-dog control, pinned to the row's top-right corner so it
-     never reads as a "hide these fields" toggle */
-  .petremove {
-    position: absolute; top: 0; right: 0;
-    width: 1.5rem; height: 1.5rem; line-height: 1;
-    display: flex; align-items: center; justify-content: center;
-    background: none; border: 0; border-radius: 50%;
-    color: var(--muted); cursor: pointer; font-size: 1.1rem;
-  }
-  .petremove:hover { background: #fbeae6; color: var(--danger); }
-  /* nothing to remove when there's a single dog -- hide the no-op x */
-  .petrow:only-child .petremove { display: none; }
-  /* optional per-dog attributes on a second, quieter line -- three
-     independent controls, separated so none looks like it modifies
-     its neighbour */
-  .petextra { flex-basis: 100%; display: flex; gap: 1.4rem;
-    flex-wrap: wrap; align-items: end; margin-top: 0.5rem;
-    padding-top: 0.5rem; border-top: 1px dotted var(--hairline); }
-  .petextra > label { color: var(--muted); font-size: 0.78rem; }
-  .hilllabel .hillslider {
-    width: 120px; accent-color: var(--brand); vertical-align: middle;
-  }
-  .hillval { color: var(--ink-2); font-size: 0.78rem; margin-left: 0.3rem; }
-  .checklabel { flex-direction: row; align-items: center; gap: 0.35rem; }
-  .checklabel input { margin: 0; }
-  .fieldhint { color: var(--muted); font-size: 0.75rem; font-weight: 400;
-    margin-top: 0.15rem; max-width: 20rem; }
-  /* derived output, sitting BELOW the dogs that determine it */
-  .startsummary {
-    display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;
-    margin: 0.2rem 0 0.8rem;
-  }
-  .summary-label { font-size: 0.85rem; color: var(--ink-2); }
-  .suggest-readout {
-    font-variant-numeric: tabular-nums; font-weight: 700;
-    color: var(--ink); font-size: 1.05rem;
-  }
-  .startsummary .fieldhint { margin-top: 0; }
-  /* walk window sits in the primary row now; keep the select compact */
-  .windowlabel select { min-width: 7.5rem; }
-  .infeasible-banner {
-    grid-column: 1 / -1;
-    background: #fbeae6; color: var(--danger);
-    border: 1px solid var(--danger); border-radius: 10px;
-    padding: 0.7rem 1rem; font-weight: 700;
-  }
-  /* dual-thumb comfort band: two overlapping range inputs on one
-     blue-to-red gradient track */
-  .band {
-    position: relative; display: inline-block;
-    width: 170px; height: 22px;
-  }
-  .band input[type="range"] {
-    position: absolute; left: 0; top: 0; width: 100%; height: 22px;
-    margin: 0; background: none; pointer-events: none;
-    -webkit-appearance: none; appearance: none;
-  }
-  .band input[type="range"]::-webkit-slider-runnable-track {
-    height: 8px; border-radius: 4px; margin-top: 7px;
-    background: linear-gradient(90deg, #2563b0 0%, #7fa6c9 30%,
-      #e8e4da 50%, #e0a06a 70%, #c53a2a 100%);
-    border: 1px solid var(--hairline);
-  }
-  .band input[type="range"]:last-child::-webkit-slider-runnable-track {
-    background: transparent; border: 0;
-  }
-  .band input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none;
-    width: 16px; height: 16px; border-radius: 50%;
-    background: var(--surface); border: 2px solid var(--ink-2);
-    margin-top: -5px; pointer-events: auto; cursor: grab;
-  }
-  .band input[type="range"]::-moz-range-track {
-    height: 8px; border-radius: 4px;
-    background: linear-gradient(90deg, #2563b0 0%, #7fa6c9 30%,
-      #e8e4da 50%, #e0a06a 70%, #c53a2a 100%);
-  }
-  .band input[type="range"]:last-child::-moz-range-track { background: transparent; }
-  .band input[type="range"]::-moz-range-thumb {
-    width: 14px; height: 14px; border-radius: 50%;
-    background: var(--surface); border: 2px solid var(--ink-2);
-    pointer-events: auto; cursor: grab;
-  }
-  .bandvals {
-    font-variant-numeric: tabular-nums; color: var(--ink-2);
-    font-size: 0.8rem; margin-left: 0.3rem;
-  }
-  .bandlabel { min-width: 260px; }
-  .small { font-size: 0.8rem; }
-  .muted { color: var(--muted); }
-  .runhead { display: flex; align-items: center; gap: 1rem; }
-  .runhead h2 { margin-right: auto; }
-  .reset {
-    background: var(--surface); color: var(--brand);
-    border: 2px solid var(--brand); border-radius: 10px;
-    padding: 0.5rem 1.1rem; font-weight: 800; font-size: 0.95rem;
-    cursor: pointer;
-  }
-  .reset:hover { background: var(--brand); color: #fff; }
-  .trace {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 12px; padding: 0.8rem 1rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.82rem; line-height: 1.55;
-    max-height: 46vh; overflow-y: auto;
-  }
-  .trace .t-plan { color: var(--ink-2); white-space: pre-wrap; border-left: 3px solid var(--hairline); padding-left: 0.6rem; margin: 0.3rem 0; }
-  .trace .t-call { color: var(--ink); }
-  .trace .t-call .name { color: var(--accent); font-weight: 700; }
-  .trace .t-result { color: var(--muted); }
-  .trace .t-bounce, .trace .t-veto { color: var(--caution); }
-  .trace .t-error { color: var(--danger); font-weight: 700; }
-  .trace .t-note { color: var(--muted); font-style: italic; }
-  .verdict-card { border-left: 6px solid var(--hairline); }
-  .verdict-card .v { font-weight: 800; letter-spacing: 0.02em; }
-  .v-OK { color: var(--ok); } .bl-OK { border-left-color: var(--ok); }
-  .v-CAUTION { color: var(--caution); } .bl-CAUTION { border-left-color: var(--caution); }
-  .v-SHORTEN { color: var(--shorten); } .bl-SHORTEN { border-left-color: var(--shorten); }
-  .v-DO_NOT_WALK { color: var(--danger); } .bl-DO_NOT_WALK { border-left-color: var(--danger); }
-  .map-box {
-    height: 52vh; min-height: 360px;
-    border-radius: 12px; border: 1px solid var(--border);
-    background: var(--surface); margin: 1rem 0 0.3rem;
-  }
-  .mapnote { color: var(--muted); font-size: 0.8rem; margin-top: 0.2rem; }
-  .timeline { padding-left: 1.2rem; }
-  .timeline li { margin: 0.3rem 0; }
-  .advice {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 12px; padding: 0.8rem 1rem; color: var(--ink-2);
-  }
-  #about p { max-width: 68ch; color: var(--ink-2); }
-  .tools { max-width: 68ch; color: var(--ink-2); padding-left: 1.2rem; }
-  .tools li { margin: 0.4rem 0; }
-  .mk-inline {
-    display: inline-flex; width: 22px; height: 22px;
-    font-size: 0.75rem; vertical-align: text-bottom;
-    border-width: 1.5px; box-shadow: none;
-  }
-  .mk {
-    width: 28px; height: 28px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    color: #fff; font-weight: 800; font-size: 0.85rem;
-    border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-    cursor: pointer;
-  }
-  footer {
-    border-top: 1px solid var(--hairline);
-    background: var(--surface);
-    padding: 1rem 2.1rem 1.4rem;
-    text-align: center;
-    color: var(--muted);
-    font-size: 0.85rem;
-  }
-  footer p { max-width: 68rem; margin: 0.35rem auto; }
 
-  /* family theme 2026-09-12: violet-gray page + sticky footer */
-  html { height: 100%; }
-  body { min-height: 100vh; display: flex; flex-direction: column; }
-  body > footer { margin-top: auto; }
+  .eyebrow {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--brand); margin: 0 0 12px;
+  }
+  h1, h2, h3 { font-weight: 800; letter-spacing: -0.02em; text-wrap: balance; margin: 0; }
 
-  .colophon { margin-top: 0.35rem; font-size: 0.78rem; opacity: 0.85; }
+  /* hero */
+  .hero {
+    max-width: 1000px; margin: 0 auto; padding: 60px 24px 44px; width: 100%;
+    border-bottom: 1px solid var(--hairline);
+  }
+  h1 { font-size: clamp(2.3rem, 6vw, 3.8rem); line-height: 1.03; margin-bottom: 20px; }
+  .lede { font-size: 1.2rem; color: var(--ink-2); max-width: 60ch; margin: 0; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+  .herocta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 30px; }
+  .cta {
+    display: inline-block; background: var(--brand); color: #fff;
+    font-weight: 600; text-decoration: none; padding: 0.7rem 1.3rem;
+    border-radius: 10px; box-shadow: var(--shadow); transition: transform .12s ease, background .12s ease;
+  }
+  .cta:hover { background: #b5501f; transform: translateY(-1px); }
+  .ctahint { font-size: 0.85rem; color: var(--muted); }
+
+  .statband {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 40px;
+    background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  }
+  .stat { background: var(--surface); padding: 18px 20px; }
+  .stat .k { font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 800; letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+  section { padding: 52px 0; border-bottom: 1px solid var(--hairline); }
+  h2 { font-size: clamp(1.6rem, 3.4vw, 2.2rem); line-height: 1.12; margin-bottom: 14px; }
+  h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; }
+  p { margin: 0 0 16px; }
+  p.col, .kicker { color: var(--ink-2); }
+  p.col strong, .kicker b { color: var(--ink); font-weight: 600; }
+  .kicker { font-size: 1.06rem; max-width: 64ch; }
+
+  /* verdict cards */
+  .verdict { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 26px; }
+  .vcard {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 22px; box-shadow: var(--shadow); position: relative; overflow: hidden;
+  }
+  .vcard::before { content:""; position:absolute; inset:0 auto 0 0; width:5px; background: var(--muted); }
+  .vcard.win::before { background: var(--ok); }
+  .vcard.pricey::before { background: var(--gold); }
+  .vcard.swap::before { background: var(--brand); }
+  .vcard .tag { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color: var(--muted); }
+  .vcard.win .tag { color: var(--ok); }
+  .vcard.pricey .tag { color: var(--caution); }
+  .vcard.swap .tag { color: var(--brand); }
+  .vcard .model { font-weight:700; font-size:1rem; margin: 8px 0 12px; word-break: break-all; font-family: ui-monospace, Menlo, monospace; }
+  .vcard .figs { display:flex; gap: 20px; }
+  .vcard .fig .n { font-weight:800; font-size:1.25rem; font-variant-numeric: tabular-nums; }
+  .vcard .fig .u { font-size:11.5px; color: var(--muted); }
+  .vcard p { font-size: .92rem; color: var(--ink-2); margin: 14px 0 0; }
+
+  /* charts */
+  figure { margin: 26px 0 0; }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 24px 26px 20px; box-shadow: var(--shadow); }
+  .chart-title { font-weight: 700; font-size: 1.05rem; margin: 0 0 2px; }
+  .chart-sub { font-size: .88rem; color: var(--muted); margin: 0 0 18px; }
+  svg { display:block; width:100%; height:auto; overflow:visible; }
+  .ax { stroke: var(--border); stroke-width:1; }
+  .grid { stroke: var(--surface-2); stroke-width:1; }
+  .tk { font-size:11px; fill: var(--muted); font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
+  .lbl { font-size:12.5px; fill: var(--ink); font-family: ui-monospace, Menlo, monospace; }
+  .lbl-2 { font-size:11.5px; fill: var(--muted); }
+  .val { font-size:12.5px; font-weight:600; fill: var(--ink); font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:16px; margin-top:18px; font-size:12.5px; color:var(--ink-2); }
+  .legend span { display:inline-flex; align-items:center; gap:7px; }
+  .sw { width:13px; height:13px; border-radius:3px; display:inline-block; }
+  .sw5 { background: var(--ok); } .sw4 { background: var(--caution); }
+  .sw2 { background: var(--brand); } .sw0 { background: var(--danger); }
+  .swcomp { background: var(--brand); } .swstrict { background: var(--caution); } .swinfra { background: var(--muted); }
+
+  /* heatmap */
+  .heat-scroll { overflow-x: auto; margin-top: 22px; }
+  table.heat { border-collapse: separate; border-spacing: 4px; min-width: 640px; }
+  table.heat th { font-weight:500; font-size:11.5px; color: var(--muted); padding: 0 4px 8px;
+    vertical-align: bottom; text-align: center; line-height:1.25; }
+  table.heat th.rowh { text-align: right; font-weight:700; color: var(--ink); font-size:12.5px;
+    padding-right: 12px; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
+  table.heat td { width: 62px; height: 44px; text-align:center; border-radius: 8px; font-weight:700;
+    font-variant-numeric: tabular-nums; font-size: 14px; font-family: ui-monospace, Menlo, monospace; }
+  td.c5 { background: var(--c5-bg); color: var(--c5-fg); }
+  td.c4 { background: var(--c4-bg); color: var(--c4-fg); }
+  td.c2 { background: var(--c2-bg); color: var(--c2-fg); }
+  td.c0 { background: var(--c0-bg); color: var(--c0-fg); }
+  .heat-note { display:flex; gap:18px; flex-wrap:wrap; margin-top:16px; font-size:12px; color:var(--muted); }
+
+  /* taxonomy */
+  .tax { margin-top: 24px; display: grid; gap: 14px; }
+  .taxrow { display:grid; grid-template-columns: 190px 1fr; gap: 18px; align-items:center; }
+  .taxrow .name { font-size:.9rem; color:var(--ink); text-align:right; font-family: ui-monospace, Menlo, monospace; }
+  .taxrow .kind { font-size:10.5px; letter-spacing:.03em; text-transform:uppercase; color: var(--muted); font-family: Poppins, sans-serif; }
+  .taxrow .bar { position: relative; height: 30px; background: var(--surface-2); border-radius: 7px; overflow: hidden; }
+  .taxrow .fill { position:absolute; inset:0 auto 0 0; border-radius:7px; display:flex; align-items:center;
+    padding-left: 11px; color:#fff; font-weight:700; font-size:13px; font-variant-numeric: tabular-nums; }
+  .infra .fill { background: var(--muted); } .strict .fill { background: var(--caution); } .comp .fill { background: var(--brand); }
+
+  .callout { margin: 26px 0 0; padding: 22px 24px; border-radius: 14px; background: var(--surface);
+    border: 1px solid var(--border); border-left: 5px solid var(--accent); box-shadow: var(--shadow); }
+  .callout.warn { border-left-color: var(--caution); }
+  .callout h3 { color: var(--accent); }
+  .callout.warn h3 { color: var(--caution); }
+  .callout p { color: var(--ink-2); margin: 0; }
+  .callout p + p { margin-top: 12px; }
+
+  .method { display:grid; grid-template-columns: repeat(2,1fr); gap: 30px 40px; margin-top: 24px; }
+  .method h3 { display:flex; align-items:baseline; gap:10px; }
+  .method h3 .step { font-family: ui-monospace, Menlo, monospace; font-size:12px; color:var(--brand); font-weight:700; }
+  .method p { font-size:.95rem; color: var(--ink-2); margin: 0; }
+  .taxa { font-family: ui-monospace, Menlo, monospace; font-size:.8rem; }
+
+  footer { margin-top: auto; padding: 34px 24px 48px; max-width: 1000px; margin-left: auto; margin-right: auto; width: 100%; }
+  footer p { font-size: 0.85rem; color: var(--muted); margin: 0.35rem 0; }
+  footer .colophon { color: var(--ink-2); }
+
+  @media (max-width: 720px) {
+    .statband { grid-template-columns: repeat(2,1fr); }
+    .verdict, .method { grid-template-columns: 1fr; }
+    .taxrow { grid-template-columns: 130px 1fr; }
+    .topnav { padding: 0.55rem 1.1rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { .cta { transition: none; } }
 </style>

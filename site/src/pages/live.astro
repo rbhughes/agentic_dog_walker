@@ -1,0 +1,411 @@
+---
+// walker.purr.io — the agent, watchable. Presets or a structured
+// custom roster go to the fossil service; the agent's event stream
+// renders live; the final plan renders from structured data only.
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agentic Dog Walker — Live Demo</title>
+    <link rel="icon" href="/purrio_2026.png" />
+    <link rel="canonical" href="https://walker.purr.io/live" />
+    <meta
+      name="description"
+      content="Watch a small language model plan dog walks: geocoding, route optimization, per-dog weather verdicts — every tool call streamed live. A modern LLM tool-use demonstration."
+    />
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <nav class="topnav">
+      <a class="logo" href="https://purr.io" aria-label="purr.io">
+        <img src="/purrio_2026.png" alt="purr.io logo" />
+      </a>
+      <span class="brand">Agentic Dog Walker</span>
+      <a href="/">← The measurement</a>
+      <a href="https://github.com/rbhughes/agentic_dog_walker">GitHub</a>
+      <span class="pill" id="status-pill">served from a laptop in a closet</span>
+    </nav>
+
+    <header class="masthead">
+      <h1>Watch an agent plan dog walks</h1>
+      <p class="standfirst">
+        A small language model with four tools: an address lookup, a
+        route optimizer, a weather service, and a terrain check &mdash;
+        all returning deterministic verdicts it must relay, not invent.
+        Below, you can watch it work
+        &mdash; every tool call, every validation bounce, every audit
+        veto, streamed live. The interesting part isn't that it works;
+        it's the machinery that keeps a small model
+        honest.
+      </p>
+    </header>
+
+    <main>
+      <section id="launcher">
+        <h2>Run a demo</h2>
+        <label class="modelrow">Model
+          <select id="model-select"><option value="">default</option></select>
+        </label>
+        <div id="preset-cards" class="cards">
+          <p class="muted">loading presets&hellip;</p>
+        </div>
+
+        <details id="custom">
+          <summary>&hellip;or build a custom roster</summary>
+          <form id="custom-form">
+            <div class="formrow">
+              <label>Start address
+                <input name="start_address" required minlength="4" maxlength="120"
+                  placeholder="Wrigley Field, Chicago" />
+              </label>
+            </div>
+            <div id="pet-rows"></div>
+            <div class="startsummary">
+              <span class="summary-label">Suggested start</span>
+              <output id="suggested-start" class="suggest-readout">09:00</output>
+              <span class="fieldhint">flexible &mdash; derived from the dogs'
+                walk windows; the walker sets the real time from the route</span>
+            </div>
+            <div class="formrow">
+              <button type="button" id="add-pet">+ add dog</button>
+              <button type="submit" class="primary">Plan the walks</button>
+            </div>
+            <p class="muted small">
+              Up to 6 dogs. Walks are 20, 30, or 60 minutes &mdash; the
+              three products a dog walker actually sells. Custom runs
+              are rate-limited; one plan runs at a time.
+            </p>
+          </form>
+        </details>
+      </section>
+
+      <section id="run" hidden>
+        <div class="runhead">
+          <h2 id="run-title">Planning&hellip;</h2>
+          <button id="reset" class="reset" hidden>&#8634; Start over</button>
+        </div>
+        <div id="trace" class="trace"></div>
+      </section>
+
+      <section id="result" hidden>
+        <h2>The plan</h2>
+        <div id="verdicts" class="cards"></div>
+        <div id="map" class="map-box"></div>
+        <p class="mapnote">
+          Street-following route from OpenRouteService; ordering by
+          OR-Tools. The map draws from the route tool's own GeoJSON
+          &mdash; never from the model's retelling.
+        </p>
+        <ol id="timeline" class="timeline"></ol>
+        <p id="advice" class="advice"></p>
+      </section>
+
+      <section id="about">
+        <h2>How it works</h2>
+        <p>
+          The agent is a hand-rolled loop &mdash; no framework &mdash;
+          around a small language model doing native tool calling
+          (pick one above; the trace shows which is running).
+          Three mechanisms keep it honest: a <strong>referee</strong>
+          that validates every tool call against its schema before
+          anything executes (violations bounce back as errors the
+          model reads and corrects); an <strong>auditor</strong> &mdash;
+          plain code, no AI &mdash; that refuses to accept a finished
+          plan until every dog's actual walk interval has a weather
+          check at that dog's location; and a <strong>structured
+          finish line</strong>: the model ends by calling a
+          <code>submit_plan</code> tool whose validated arguments are
+          the final plan. Weather verdicts come from
+          threshold tables in code, not from the model's judgment
+          &mdash; the model relays them and plans around them.
+        </p>
+        <h2>The tools</h2>
+        <ul class="tools">
+          <li><strong>geocode_addresses</strong> &mdash; turns street
+            addresses into coordinates
+            (Nominatim / OpenStreetMap; batched and cached).</li>
+          <li><strong>check_weather</strong> &mdash; hourly forecast
+            for a place, date, and time window (Open-Meteo), reduced
+            in code to a deterministic verdict: OK, CAUTION, SHORTEN,
+            or DO&nbsp;NOT&nbsp;WALK.</li>
+          <li><strong>check_terrain</strong> &mdash; samples elevation
+            around a dog's home (Open-Meteo) and scores the hilliness
+            against that dog's tolerance &mdash; for dogs that can't
+            take steep ground.</li>
+          <li><strong>optimize_route</strong> &mdash; real
+            street-walking distances (OpenRouteService) fed to a
+            route-ordering solver (OR-Tools), returning the visiting
+            order, each dog's walk interval, and the map geometry. With
+            medication deadlines it solves for a time that meets them,
+            or reports honestly that no order can.</li>
+          <li><strong>submit_plan</strong> &mdash; the finish line: a
+            tool with no implementation, whose schema-validated
+            arguments are the plan itself.</li>
+        </ul>
+        <p>
+          The service runs on a retired laptop in a closet (the
+          inference is rented per-token); the whole stack costs about
+          a dollar a month. Source, tests, and the full build history:
+          <a href="https://github.com/rbhughes/agentic_dog_walker">the repo</a>.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Geocoding by Nominatim/OpenStreetMap. Weather by Open-Meteo.
+        Routing by OpenRouteService + OR-Tools. Basemap by
+        <a href="https://openfreemap.org">OpenFreeMap</a>.
+      </p>
+      <p class="colophon">A <a href="https://purr.io">purr.io</a> project &middot; &copy; 2026 &middot; built in the open</p>
+    </footer>
+
+    <script src="../scripts/app.js"></script>
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --page: #f3f4f6;
+    --surface: #ffffff;
+    --ink: #262e42;
+    --ink-2: #5b6577;
+    --muted: #9aa0ab;
+    --hairline: #dfe1e6;
+    --border: rgba(38, 46, 66, 0.12);
+    --accent: #4a6fa5;
+    --brand: #cc6137;
+    --gold: #eeb63f;
+    --ok: #2f7d33;
+    --caution: #b26a00;
+    --shorten: #d7301f;
+    --danger: #990000;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.6 Poppins, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  a { color: var(--accent); }
+  .topnav {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.55rem 2.1rem;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--surface);
+    flex-wrap: wrap;
+  }
+  .topnav .logo img { height: 26px; width: 26px; display: block; border-radius: 6px; }
+  .topnav .brand { font-weight: 700; color: var(--brand); margin-right: 0.4rem; }
+  .pill {
+    margin-left: auto;
+    font-size: 0.75rem; color: var(--ink-2);
+    border: 1px solid var(--hairline); border-radius: 999px;
+    padding: 0.15rem 0.6rem; background: var(--page);
+  }
+  .masthead { max-width: 880px; margin: 0 auto; padding: 2rem 2.1rem 0.5rem; }
+  h1 { margin: 0 0 0.6rem; font-size: 1.9rem; letter-spacing: -0.01em; }
+  .standfirst { color: var(--ink-2); font-size: 1.05rem; max-width: 62ch; }
+  main { max-width: 880px; margin: 0 auto; padding: 0 2.1rem 2rem; }
+  h2 { font-size: 1.2rem; margin: 1.6rem 0 0.6rem; }
+  .modelrow {
+    display: flex; flex-direction: row; align-items: center;
+    gap: 0.5rem; margin: 0 0 0.8rem; font-size: 0.9rem;
+  }
+  .modelrow select { max-width: 100%; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.8rem; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 0.9rem 1rem;
+  }
+  .card h3 { margin: 0 0 0.25rem; font-size: 1.02rem; }
+  .card p { margin: 0.2rem 0 0.6rem; color: var(--ink-2); font-size: 0.9rem; }
+  .card button, .primary {
+    background: var(--gold); color: var(--ink); border: 0; border-radius: 8px;
+    padding: 0.45rem 0.9rem; font-weight: 700; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #custom { margin-top: 1rem; }
+  #custom summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+  #custom-form {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1rem; margin-top: 0.6rem;
+  }
+  .formrow { display: flex; gap: 0.8rem; align-items: start; flex-wrap: wrap; margin: 0.5rem 0; }
+  label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; color: var(--ink-2); }
+  input, select {
+    font: inherit; padding: 0.35rem 0.5rem;
+    border: 1px solid var(--hairline); border-radius: 7px; background: #fff;
+  }
+  .petrow { position: relative; display: flex; gap: 0.6rem;
+    align-items: end; flex-wrap: wrap;
+    margin: 0.4rem 0 0.9rem; padding: 0.2rem 2rem 0.7rem 0;
+    border-bottom: 1px dashed var(--hairline); }
+  /* remove-this-dog control, pinned to the row's top-right corner so it
+     never reads as a "hide these fields" toggle */
+  .petremove {
+    position: absolute; top: 0; right: 0;
+    width: 1.5rem; height: 1.5rem; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 0; border-radius: 50%;
+    color: var(--muted); cursor: pointer; font-size: 1.1rem;
+  }
+  .petremove:hover { background: #fbeae6; color: var(--danger); }
+  /* nothing to remove when there's a single dog -- hide the no-op x */
+  .petrow:only-child .petremove { display: none; }
+  /* optional per-dog attributes on a second, quieter line -- three
+     independent controls, separated so none looks like it modifies
+     its neighbour */
+  .petextra { flex-basis: 100%; display: flex; gap: 1.4rem;
+    flex-wrap: wrap; align-items: end; margin-top: 0.5rem;
+    padding-top: 0.5rem; border-top: 1px dotted var(--hairline); }
+  .petextra > label { color: var(--muted); font-size: 0.78rem; }
+  .hilllabel .hillslider {
+    width: 120px; accent-color: var(--brand); vertical-align: middle;
+  }
+  .hillval { color: var(--ink-2); font-size: 0.78rem; margin-left: 0.3rem; }
+  .checklabel { flex-direction: row; align-items: center; gap: 0.35rem; }
+  .checklabel input { margin: 0; }
+  .fieldhint { color: var(--muted); font-size: 0.75rem; font-weight: 400;
+    margin-top: 0.15rem; max-width: 20rem; }
+  /* derived output, sitting BELOW the dogs that determine it */
+  .startsummary {
+    display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap;
+    margin: 0.2rem 0 0.8rem;
+  }
+  .summary-label { font-size: 0.85rem; color: var(--ink-2); }
+  .suggest-readout {
+    font-variant-numeric: tabular-nums; font-weight: 700;
+    color: var(--ink); font-size: 1.05rem;
+  }
+  .startsummary .fieldhint { margin-top: 0; }
+  /* walk window sits in the primary row now; keep the select compact */
+  .windowlabel select { min-width: 7.5rem; }
+  .infeasible-banner {
+    grid-column: 1 / -1;
+    background: #fbeae6; color: var(--danger);
+    border: 1px solid var(--danger); border-radius: 10px;
+    padding: 0.7rem 1rem; font-weight: 700;
+  }
+  /* dual-thumb comfort band: two overlapping range inputs on one
+     blue-to-red gradient track */
+  .band {
+    position: relative; display: inline-block;
+    width: 170px; height: 22px;
+  }
+  .band input[type="range"] {
+    position: absolute; left: 0; top: 0; width: 100%; height: 22px;
+    margin: 0; background: none; pointer-events: none;
+    -webkit-appearance: none; appearance: none;
+  }
+  .band input[type="range"]::-webkit-slider-runnable-track {
+    height: 8px; border-radius: 4px; margin-top: 7px;
+    background: linear-gradient(90deg, #2563b0 0%, #7fa6c9 30%,
+      #e8e4da 50%, #e0a06a 70%, #c53a2a 100%);
+    border: 1px solid var(--hairline);
+  }
+  .band input[type="range"]:last-child::-webkit-slider-runnable-track {
+    background: transparent; border: 0;
+  }
+  .band input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--ink-2);
+    margin-top: -5px; pointer-events: auto; cursor: grab;
+  }
+  .band input[type="range"]::-moz-range-track {
+    height: 8px; border-radius: 4px;
+    background: linear-gradient(90deg, #2563b0 0%, #7fa6c9 30%,
+      #e8e4da 50%, #e0a06a 70%, #c53a2a 100%);
+  }
+  .band input[type="range"]:last-child::-moz-range-track { background: transparent; }
+  .band input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--ink-2);
+    pointer-events: auto; cursor: grab;
+  }
+  .bandvals {
+    font-variant-numeric: tabular-nums; color: var(--ink-2);
+    font-size: 0.8rem; margin-left: 0.3rem;
+  }
+  .bandlabel { min-width: 260px; }
+  .small { font-size: 0.8rem; }
+  .muted { color: var(--muted); }
+  .runhead { display: flex; align-items: center; gap: 1rem; }
+  .runhead h2 { margin-right: auto; }
+  .reset {
+    background: var(--surface); color: var(--brand);
+    border: 2px solid var(--brand); border-radius: 10px;
+    padding: 0.5rem 1.1rem; font-weight: 800; font-size: 0.95rem;
+    cursor: pointer;
+  }
+  .reset:hover { background: var(--brand); color: #fff; }
+  .trace {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 0.8rem 1rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.82rem; line-height: 1.55;
+    max-height: 46vh; overflow-y: auto;
+  }
+  .trace .t-plan { color: var(--ink-2); white-space: pre-wrap; border-left: 3px solid var(--hairline); padding-left: 0.6rem; margin: 0.3rem 0; }
+  .trace .t-call { color: var(--ink); }
+  .trace .t-call .name { color: var(--accent); font-weight: 700; }
+  .trace .t-result { color: var(--muted); }
+  .trace .t-bounce, .trace .t-veto { color: var(--caution); }
+  .trace .t-error { color: var(--danger); font-weight: 700; }
+  .trace .t-note { color: var(--muted); font-style: italic; }
+  .verdict-card { border-left: 6px solid var(--hairline); }
+  .verdict-card .v { font-weight: 800; letter-spacing: 0.02em; }
+  .v-OK { color: var(--ok); } .bl-OK { border-left-color: var(--ok); }
+  .v-CAUTION { color: var(--caution); } .bl-CAUTION { border-left-color: var(--caution); }
+  .v-SHORTEN { color: var(--shorten); } .bl-SHORTEN { border-left-color: var(--shorten); }
+  .v-DO_NOT_WALK { color: var(--danger); } .bl-DO_NOT_WALK { border-left-color: var(--danger); }
+  .map-box {
+    height: 52vh; min-height: 360px;
+    border-radius: 12px; border: 1px solid var(--border);
+    background: var(--surface); margin: 1rem 0 0.3rem;
+  }
+  .mapnote { color: var(--muted); font-size: 0.8rem; margin-top: 0.2rem; }
+  .timeline { padding-left: 1.2rem; }
+  .timeline li { margin: 0.3rem 0; }
+  .advice {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 0.8rem 1rem; color: var(--ink-2);
+  }
+  #about p { max-width: 68ch; color: var(--ink-2); }
+  .tools { max-width: 68ch; color: var(--ink-2); padding-left: 1.2rem; }
+  .tools li { margin: 0.4rem 0; }
+  .mk-inline {
+    display: inline-flex; width: 22px; height: 22px;
+    font-size: 0.75rem; vertical-align: text-bottom;
+    border-width: 1.5px; box-shadow: none;
+  }
+  .mk {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800; font-size: 0.85rem;
+    border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    cursor: pointer;
+  }
+  footer {
+    border-top: 1px solid var(--hairline);
+    background: var(--surface);
+    padding: 1rem 2.1rem 1.4rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  footer p { max-width: 68rem; margin: 0.35rem auto; }
+
+  /* family theme 2026-09-12: violet-gray page + sticky footer */
+  html { height: 100%; }
+  body { min-height: 100vh; display: flex; flex-direction: column; }
+  body > footer { margin-top: auto; }
+
+  .colophon { margin-top: 0.35rem; font-size: 0.78rem; opacity: 0.85; }
+</style>
