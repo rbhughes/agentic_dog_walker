@@ -213,18 +213,31 @@ _ALL_SCHEMAS: dict[str, dict] = {
 }
 
 
-def without_nulls(value):
-    """Drop keys whose value is null, at every depth. Models routinely
-    emit `null` for an optional field they mean to leave unset
-    (max_relief_m: null); our tools already treat MISSING as the default,
-    so null == absent. Stripping before validation stops a needless
-    'None is not of type number' bounce loop -- measured: qwen3-8b
-    livelocked 14 rounds on it -- and matches how the tools already read
-    their inputs."""
+def scrub_optionals(value):
+    """Drop the values a small model uses to mean 'leave this unset',
+    which the schema would otherwise bounce into a livelock, at every
+    depth:
+      * null anywhere -- an optional the model nulled instead of
+        omitting (max_relief_m: null); our tools treat MISSING as the
+        default, so null == absent. Measured: two gpt-oss-120b runs died
+        on 'None is not of type number'.
+      * max_relief_m <= 0 -- a dog with NO hill limit. The field's
+        minimum is 1 (0 metres of tolerance is meaningless), but models
+        write 0 for 'not applicable'; treat it as absent. Measured:
+        qwen3-8b livelocked on 'max_relief_m: 0 is <= 0', lakeview 0/5.
+    Matches how the tools already read their inputs, and runs before both
+    the referee and dispatch (and inside _call_args, for the auditors)."""
     if isinstance(value, dict):
-        return {k: without_nulls(v) for k, v in value.items() if v is not None}
+        out = {}
+        for k, v in value.items():
+            if v is None:
+                continue
+            if k == "max_relief_m" and isinstance(v, (int, float)) and v <= 0:
+                continue
+            out[k] = scrub_optionals(v)
+        return out
     if isinstance(value, list):
-        return [without_nulls(v) for v in value]
+        return [scrub_optionals(v) for v in value]
     return value
 
 
@@ -266,7 +279,7 @@ def _call_args(tool_call: dict) -> dict:
     gpt-oss-120b runs down as backend_error."""
     arguments = tool_call["function"]["arguments"]
     parsed = json.loads(arguments) if isinstance(arguments, str) else arguments
-    return without_nulls(parsed)
+    return scrub_optionals(parsed)
 
 
 def _clock_to_hours(hhmm: str) -> float:
@@ -585,7 +598,7 @@ def run_events(request: str, model: str | None = None):
                 # a model that fills optional fields with null isn't
                 # bounced into a livelock (the _raw resent to the model is
                 # untouched)
-                arguments = without_nulls(call["function"]["arguments"])
+                arguments = scrub_optionals(call["function"]["arguments"])
                 yield {
                     "event": "call",
                     "round": round_no,

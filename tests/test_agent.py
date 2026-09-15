@@ -7,7 +7,7 @@ behavioral claim per test, no network, no model.
 
 import json
 
-from dog_walker.agent import (_call_args, audit_feasibility, audit_terrain_coverage, audit_weather_coverage, validate_call, without_nulls)
+from dog_walker.agent import (_call_args, audit_feasibility, audit_terrain_coverage, audit_weather_coverage, scrub_optionals, validate_call)
 
 # ---------------------------------------------------------------------
 # validate_call: the referee
@@ -249,15 +249,31 @@ def test_null_optional_field_is_stripped_not_bounced():
     stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
              {"name": "Rex", "lat": 0.0, "lon": 0.1, "walk_minutes": 30,
               "max_relief_m": None, "buffer_minutes": None}]
-    cleaned = without_nulls({"stops": stops})
+    cleaned = scrub_optionals({"stops": stops})
     assert "max_relief_m" not in cleaned["stops"][1]
     assert "buffer_minutes" not in cleaned["stops"][1]
     assert validate_call("optimize_route", cleaned) is None
 
 
-def test_without_nulls_keeps_real_values():
-    kept = without_nulls({"a": 0, "b": False, "c": None, "d": [{"e": None, "f": 1}]})
-    assert kept == {"a": 0, "b": False, "d": [{"f": 1}]}
+def test_zero_max_relief_is_stripped_not_bounced():
+    # a model that writes max_relief_m: 0 to mean "no hill limit"
+    # (measured: qwen3-8b, lakeview 0/5) must not livelock -- the schema
+    # minimum is 1, so 0 == unset, so the call is legal without it
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "Rex", "lat": 0.0, "lon": 0.1, "walk_minutes": 30,
+              "max_relief_m": 0}]
+    cleaned = scrub_optionals({"stops": stops})
+    assert "max_relief_m" not in cleaned["stops"][1]
+    assert validate_call("optimize_route", cleaned) is None
+
+
+def test_scrub_keeps_real_values():
+    # null and non-positive max_relief_m go; genuine zeros stay
+    kept = scrub_optionals({"a": 0, "b": False, "c": None,
+                            "buffer_minutes": 0, "max_relief_m": 0,
+                            "d": [{"e": None, "f": 1, "max_relief_m": 30}]})
+    assert kept == {"a": 0, "b": False, "buffer_minutes": 0,
+                    "d": [{"f": 1, "max_relief_m": 30}]}
 
 
 def test_call_args_strips_nulls_so_auditors_dont_crash():
