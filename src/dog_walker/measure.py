@@ -136,6 +136,7 @@ def execute_run(model: str, prompt: str, expected_feasible: bool) -> dict:
 
     events: list[dict] = []
     bounces = vetoes = nudges = tool_calls = 0
+    bounce_errors: list[str] = []
     final = error = None
     started = time.monotonic()
     for ev in run_events(prompt, model=model):
@@ -145,6 +146,7 @@ def execute_run(model: str, prompt: str, expected_feasible: bool) -> dict:
             tool_calls += 1
         elif kind == "bounce":
             bounces += 1
+            bounce_errors.append((ev.get("error") or "")[:160])
         elif kind == "audit_veto":
             vetoes += 1
         elif kind == "nudge":
@@ -174,6 +176,10 @@ def execute_run(model: str, prompt: str, expected_feasible: bool) -> dict:
         "rounds": terminal.get("rounds", 0),
         "tool_calls": tool_calls,
         "bounces": bounces,
+        # the schema-violation strings, on EVERY run (passes included) so
+        # referee friction that self-healed is still auditable -- this is
+        # how max_relief_m:0-class bugs surface before they livelock
+        "bounce_errors": bounce_errors[:20],
         "vetoes": vetoes,
         "nudges": nudges,
         "prompt_tokens": usage.get("prompt_tokens", 0),

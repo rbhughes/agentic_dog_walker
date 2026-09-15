@@ -5,9 +5,57 @@ that make the loop trustworthy. Same rule as test_toolbox: one
 behavioral claim per test, no network, no model.
 """
 
+import io
 import json
 
-from dog_walker.agent import (_call_args, audit_feasibility, audit_terrain_coverage, audit_weather_coverage, scrub_optionals, validate_call)
+import dog_walker.agent as agent
+from dog_walker.agent import (_call_args, audit_feasibility, audit_terrain_coverage, audit_weather_coverage, chat, scrub_optionals, validate_call)
+
+
+# ---------------------------------------------------------------------
+# chat(): transient-response retry
+# ---------------------------------------------------------------------
+
+
+def _no_sleep(*_a, **_k):
+    return None
+
+
+def test_chat_retries_unusable_body_then_succeeds(monkeypatch):
+    # a 200 whose body has no "choices" (measured: mercury) must retry,
+    # not escape as a terminal error counted against the model
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(agent.time, "sleep", _no_sleep)
+    good = {"choices": [{"message": {"role": "assistant", "content": "ok",
+                                     "tool_calls": []}}], "usage": {}}
+    responses = iter([{"error": "upstream hiccup"}, good])  # bad, then good
+
+    def fake_urlopen(_req, timeout=None):
+        return io.BytesIO(json.dumps(next(responses)).encode())
+
+    monkeypatch.setattr(agent.urllib.request, "urlopen", fake_urlopen)
+    result = chat("some/model", [{"role": "user", "content": "hi"}])
+    assert result["content"] == "ok"
+
+
+def test_chat_retries_truncated_tool_json(monkeypatch):
+    # a 200 with malformed tool-call arguments (measured: gpt-oss) retries
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(agent.time, "sleep", _no_sleep)
+    truncated = {"choices": [{"message": {"role": "assistant", "tool_calls": [
+        {"id": "1", "function": {"name": "check_weather",
+                                 "arguments": '{"lat": 41.9, "lon":'}}]}}]}
+    good = {"choices": [{"message": {"role": "assistant", "tool_calls": [
+        {"id": "1", "function": {"name": "check_weather",
+                                 "arguments": '{"lat": 41.9, "lon": -87.6}'}}]}}]}
+    responses = iter([truncated, good])
+
+    def fake_urlopen(_req, timeout=None):
+        return io.BytesIO(json.dumps(next(responses)).encode())
+
+    monkeypatch.setattr(agent.urllib.request, "urlopen", fake_urlopen)
+    result = chat("some/model", [{"role": "user", "content": "hi"}])
+    assert result["tool_calls"][0]["function"]["arguments"] == {"lat": 41.9, "lon": -87.6}
 
 # ---------------------------------------------------------------------
 # validate_call: the referee

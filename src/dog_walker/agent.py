@@ -119,7 +119,16 @@ TOOLS = [schema for _fn, schema in REGISTRY.values()] + [SUBMIT_PLAN_SCHEMA]
 def chat(model: str, messages: list, think: bool = False) -> dict:
     """One model round. Returns the normalized message:
     {"role", "content", "tool_calls": [arguments as dicts], "_raw"}.
-    _raw is the wire-format original -- always resend THAT."""
+    _raw is the wire-format original -- always resend THAT.
+
+    Retries transient failures (4 attempts, backoff): network, timeouts,
+    429, 5xx, AND a 200 whose body is UNUSABLE -- no `choices`, or
+    tool-call arguments that don't parse (truncated / malformed JSON).
+    That last class used to escape as a terminal error and get counted
+    against the model; measured, it was a large share of the
+    'backend_error' noise (mercury's empty completions, gpt-oss's
+    truncated tool JSON). A 400 gets one retry without the reasoning
+    block. Other 4xx are our bug -- fail fast."""
     key = os.environ.get("OPENROUTER_API_KEY", "")
     if not key:
         raise RuntimeError("set OPENROUTER_API_KEY in env or .env")
@@ -139,16 +148,31 @@ def chat(model: str, messages: list, think: bool = False) -> dict:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {key}",
     }
-    # Armor: one model round gets 3 attempts with short backoff.
-    # Retryable: network faults, timeouts, rate limits (429), and
-    # server-side errors (5xx). Client errors (4xx) are OUR bug --
-    # fail fast so they surface.
     req = urllib.request.Request(OPENROUTER_URL, json.dumps(body).encode(), headers)
     last_error: Exception | None = None
     for attempt in range(4):
         try:
             resp = json.load(urllib.request.urlopen(req, timeout=180))
-            break
+            # PARSE inside the retry: a 200 whose body has no choices or
+            # whose tool-call arguments don't parse is a transient
+            # provider glitch, not the model's answer -- so a failure
+            # here should retry, not become a terminal error.
+            raw = resp["choices"][0]["message"]
+            tool_calls = [
+                {
+                    "id": tc.get("id"),
+                    "function": {
+                        "name": tc["function"]["name"],
+                        "arguments": json.loads(tc["function"]["arguments"]),
+                    },
+                }
+                for tc in (raw.get("tool_calls") or [])
+            ]
+            norm = dict(raw)  # shallow copy; passenger fields ride through
+            norm["tool_calls"] = tool_calls
+            norm["_raw"] = raw
+            norm["_usage"] = resp.get("usage")  # {prompt_tokens, completion_tokens, cost}
+            return norm
         except urllib.error.HTTPError as e:
             if e.code == 429 or e.code >= 500:
                 last_error = e
@@ -163,25 +187,15 @@ def chat(model: str, messages: list, think: bool = False) -> dict:
                 raise
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             last_error = e
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            # 200 but the body is unusable: missing choices, or tool-call
+            # arguments that were truncated / malformed. Retry like a 5xx.
+            last_error = e
         time.sleep(2**attempt)  # 1s, 2s, 4s between attempts
-    else:
-        raise RuntimeError(f"model backend unreachable after 4 attempts: {last_error}")
-
-    raw = resp["choices"][0]["message"]
-    norm = dict(raw)  # shallow copy; passenger fields ride through
-    norm["tool_calls"] = [
-        {
-            "id": tc.get("id"),
-            "function": {
-                "name": tc["function"]["name"],
-                "arguments": json.loads(tc["function"]["arguments"]),
-            },
-        }
-        for tc in (raw.get("tool_calls") or [])
-    ]
-    norm["_raw"] = raw
-    norm["_usage"] = resp.get("usage")  # {prompt_tokens, completion_tokens, cost}
-    return norm
+    raise RuntimeError(
+        f"model backend unusable after 4 attempts: "
+        f"{type(last_error).__name__}: {last_error}"
+    )
 
 
 def dispatch(name: str, arguments: dict) -> dict:
