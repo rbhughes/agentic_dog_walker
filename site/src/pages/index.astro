@@ -40,12 +40,22 @@ import data from "../data/measurement.json";
       <p class="eyebrow">Model evaluation · 210 live runs</p>
       <h1>Which model walks the dogs?</h1>
       <p class="lede">
-        The agent below plans dog walks with real tools: it geocodes the
-        addresses, finds a route, and checks the weather and terrain for each
-        dog. I ran six cheap language models through it and graded every plan
-        against the agent's own <strong>deterministic checks</strong>, rather
-        than a second model's judgment. Across 210 runs, some held up perfectly,
-        some fell apart, and the cost between them spanned two orders of magnitude.
+        This is a measurement, and <strong>the measurement is the point</strong>
+        — not the dog walking, and not any particular model. Of the cheap
+        language models that can use tools and reason, which are actually good
+        enough to run a real agent? The task below is only a yardstick, chosen
+        because it has a <strong>deterministic finish line</strong>: a plan
+        either passes the agent's own checks or it doesn't, so a score isn't a
+        matter of opinion.
+      </p>
+      <p class="lede-2">
+        The field is picked by rule, not taste. From OpenRouter's full catalog I
+        keep only models that support tool calls and reasoning and are priced near
+        the cheap end — at most $0.30 per million input tokens and $1.20 per
+        million output — and each one has to clear a live end-to-end run to make
+        the list, with a frontier model pinned in for contrast. Every survivor
+        then plans the same dog walks below, using the same four real tools, and
+        every plan is graded by the agent's checks rather than another model's.
       </p>
       <div class="herocta">
         <a class="cta" href="/live">Run the agent yourself →</a>
@@ -514,6 +524,7 @@ import data from "../data/measurement.json";
   h1 { font-size: clamp(2.3rem, 6vw, 3.8rem); line-height: 1.03; margin-bottom: 20px; }
   .lede { font-size: 1.2rem; color: var(--ink-2); margin: 0; }
   .lede strong { color: var(--ink); font-weight: 600; }
+  .lede-2 { font-size: 1.02rem; color: var(--ink-2); margin: 16px 0 0; }
   .herocta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 30px; }
   .cta {
     display: inline-block; background: var(--brand); color: #fff;
