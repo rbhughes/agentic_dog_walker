@@ -155,13 +155,24 @@ function petRow() {
           title="how much hill this dog can handle" />
         <span class="hillval">any terrain</span>
       </label>
+      <label class="difflabel">Difficulty
+        <input name="pet_difficulty" type="range" min="0" max="5" step="1"
+          value="0" class="diffslider"
+          title="how badly-behaved this dog is" />
+        <span class="diffval">good dog — never runs long</span>
+      </label>
       <label class="checklabel" title="this dog needs medication; the stop takes a little longer">
         <input name="pet_meds" type="checkbox" />
         Needs meds
       </label>
+      <label class="checklabel" title="this dog won't walk in the rain; a minimal visit instead">
+        <input name="pet_skiprain" type="checkbox" />
+        Skips rain
+      </label>
     </div>`;
   wireBand(row);
   wireHill(row);
+  wireDifficulty(row);
   row.querySelector(".petremove").addEventListener("click", removePet);
   row.querySelector('[name="pet_window"]')
     .addEventListener("change", updateSuggestedStart);
@@ -182,6 +193,27 @@ function wireHill(row) {
   const label = row.querySelector(".hillval");
   function sync() {
     label.textContent = HILL_STOPS[parseInt(slider.value, 10)][0];
+  }
+  slider.addEventListener("input", sync);
+  sync();
+}
+
+// difficulty 0-5: each point is a 5-min overrun the dog exhibits about
+// half the time. The label spells that out so the score isn't cryptic.
+const DIFF_LABELS = [
+  "good dog — never runs long",
+  "1 · 50% chance of +5 min",
+  "2 · 50% chance of +10 min",
+  "3 · 50% chance of +15 min",
+  "4 · 50% chance of +20 min",
+  "5 · 50% chance of +25 min",
+];
+
+function wireDifficulty(row) {
+  const slider = row.querySelector(".diffslider");
+  const label = row.querySelector(".diffval");
+  function sync() {
+    label.textContent = DIFF_LABELS[parseInt(slider.value, 10)];
   }
   slider.addEventListener("input", sync);
   sync();
@@ -223,15 +255,15 @@ function removePet(e) {
 }
 
 function addPet() {
-  if (el.petRows.children.length < 6) el.petRows.appendChild(petRow());
+  if (el.petRows.children.length < 12) el.petRows.appendChild(petRow());
 }
 
 // The start time isn't a user-owned field: the walk windows suggest it,
 // and the solver sets the real departure (which the plan then shows).
-// Morning walks begin at 8:00, afternoon at noon; an all-any roster has
-// no constraint, so a plain 9:00 default.
+// Morning walks may begin at 7:00, afternoon at noon; an all-any roster
+// has no constraint, so a plain 9:00 default.
 function suggestedStart(windows) {
-  if (windows.includes("morning")) return "08:00";
+  if (windows.includes("morning")) return "07:00";
   if (windows.includes("afternoon")) return "12:00";
   return "09:00";
 }
@@ -267,6 +299,7 @@ function submitCustom(e) {
   const bandMaxs = data.getAll("pet_band_max");
   const windows = data.getAll("pet_window");
   const hills = data.getAll("pet_hill");
+  const diffs = data.getAll("pet_difficulty");
   const rows = [...el.petRows.querySelectorAll(".petrow")];
   for (let i = 0; i < names.length; i++) {
     const a = parseInt(bandMins[i] || "20", 10);
@@ -286,6 +319,11 @@ function submitCustom(e) {
     if (windows[i] && windows[i] !== "any") pet.walk_window = windows[i];
     const relief = HILL_STOPS[parseInt(hills[i] || "3", 10)][1];
     if (relief !== null) pet.max_relief_m = relief;
+    const difficulty = parseInt(diffs[i] || "0", 10);
+    if (difficulty > 0) pet.difficulty = difficulty;
+    if (rows[i]?.querySelector('[name="pet_skiprain"]')?.checked) {
+      pet.skip_rain = true;
+    }
     pets.push(pet);
   }
   runPlan({

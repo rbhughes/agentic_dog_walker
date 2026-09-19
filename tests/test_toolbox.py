@@ -268,6 +268,20 @@ def test_check_weather_is_fetch_then_assess(monkeypatch):
     assert result["verdict"] == "DO_NOT_WALK"
 
 
+def test_check_weather_flags_rain(monkeypatch):
+    def wet(lat, lon, date):
+        return day(precip_mm=[3.0] * 24)
+
+    monkeypatch.setattr("dog_walker.toolbox.fetch_forecast", wet)
+    assert check_weather(41.9, -87.6, "2026-09-11", 13, 14)["raining"] is True
+
+    def dry(lat, lon, date):
+        return day(precip_mm=[0.0] * 24)
+
+    monkeypatch.setattr("dog_walker.toolbox.fetch_forecast", dry)
+    assert check_weather(41.9, -87.6, "2026-09-11", 13, 14)["raining"] is False
+
+
 # ---------------------------------------------------------------------
 # route optimizer: the offline parts
 # ---------------------------------------------------------------------
@@ -376,7 +390,7 @@ def test_fallback_flag_reaches_the_caller(line_route):
 
 def test_route_rejects_too_few_or_too_many_stops():
     assert "error" in optimize_route([{"name": "solo", "lat": 0, "lon": 0}])
-    too_many = [{"name": f"s{i}", "lat": 0, "lon": 0} for i in range(11)]
+    too_many = [{"name": f"s{i}", "lat": 0, "lon": 0} for i in range(14)]
     assert "error" in optimize_route(too_many)
 
 
@@ -540,9 +554,9 @@ def test_morning_and_afternoon_cluster_across_noon(monkeypatch):
 
 
 def test_too_many_morning_walks_are_infeasible(monkeypatch):
-    # even leaving at 8:00, five back-to-back 60-min morning walks cannot
+    # even leaving at 7:00, six back-to-back 60-min morning walks cannot
     # all START before noon in any order -- honest infeasibility
-    n = 6
+    n = 7
     monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(n))
     monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
     stops = [{"name": "home", "lat": 0.0, "lon": 0.0}]
@@ -555,6 +569,138 @@ def test_too_many_morning_walks_are_infeasible(monkeypatch):
     assert r["feasible"] is False
     assert "window" in r["reason"]
     assert "timeline" not in r
+
+
+# ---------------------------------------------------------------------
+# daylight: no walk may end after sunset (or 7pm)
+# ---------------------------------------------------------------------
+
+
+def test_fetch_sunset_min_parses_iso(monkeypatch):
+    class FakeResp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"daily": {"sunset": ["2026-12-15T16:29"]}}
+
+    def fake_get(*_a, **_k):
+        return FakeResp()
+
+    monkeypatch.setattr("dog_walker.toolbox.requests.get", fake_get)
+    from dog_walker.toolbox import fetch_sunset_min
+    assert fetch_sunset_min(41.9, -87.6, "2026-12-15") == 16 * 60 + 29
+
+
+def test_afternoon_walk_before_late_sunset_is_feasible(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(2))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "Rex", "lat": 0.0, "lon": 0.01, "walk_minutes": 60,
+              "walk_window": "afternoon"}]
+    r = optimize_route(stops, sunset_min=19 * 60)   # 7:00pm, plenty of time
+    assert r["feasible"] is True
+    assert r["sunset_min"] == 19 * 60
+
+
+def test_afternoon_walk_after_early_sunset_is_infeasible(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(2))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "Rex", "lat": 0.0, "lon": 0.01, "walk_minutes": 60,
+              "walk_window": "afternoon"}]
+    # sunset 12:30: an afternoon (>=noon) 60-min walk can't finish by dark
+    r = optimize_route(stops, sunset_min=12 * 60 + 30)
+    assert r["feasible"] is False
+    assert "dark" in r["reason"]
+
+
+def test_too_many_afternoon_walks_before_dark_are_infeasible(monkeypatch):
+    n = 6  # five afternoon 60-min walks can't fit noon->16:30
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(n))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0}]
+    for i in range(1, n):
+        stops.append({"name": f"d{i}", "lat": 0.0, "lon": i * 0.01,
+                      "walk_minutes": 60, "walk_window": "afternoon"})
+    r = optimize_route(stops, sunset_min=16 * 60 + 30)  # 4:30pm winter sunset
+    assert r["feasible"] is False
+    assert "dark" in r["reason"]
+
+
+# ---------------------------------------------------------------------
+# difficulty: a difficult dog's walk runs long ~half the time
+# ---------------------------------------------------------------------
+
+
+def test_dog_priority_is_a_derived_score():
+    from dog_walker.toolbox import dog_priority
+    assert dog_priority({}) == 0
+    assert dog_priority({"needs_meds": True}) == 2
+    assert dog_priority({"comfort_min_f": 60, "comfort_max_f": 80}) == 2  # 20 wide
+    assert dog_priority({"comfort_min_f": 20, "comfort_max_f": 84}) == 0  # 64 wide
+    assert dog_priority({"difficulty": 3}) == 1
+    assert dog_priority({"difficulty": 2}) == 0
+    assert dog_priority({"walk_window": "afternoon"}) == 1
+    assert dog_priority({"needs_meds": True, "difficulty": 5,
+                         "walk_window": "afternoon",
+                         "comfort_min_f": 50, "comfort_max_f": 70}) == 6
+
+
+def _acts_up():
+    return 0.0   # < 0.5: the dog misbehaves
+
+
+def _behaves():
+    return 0.9   # >= 0.5: good dog
+
+
+def test_difficulty_overrun_extends_the_walk(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(2))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    monkeypatch.setattr("dog_walker.toolbox.random.random", _acts_up)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "Ralph", "lat": 0.0, "lon": 0.01, "walk_minutes": 20,
+              "difficulty": 5}]
+    r = optimize_route(stops, start_time="09:00")
+    ralph = next(e for e in r["timeline"] if e["stop"] == "Ralph")
+    assert ralph["difficulty_extra_min"] == 25    # 5 * 5
+    assert ralph["walk_minutes"] == 45            # 20 + 25
+
+
+def test_good_dog_and_calm_day_dont_extend(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(2))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    # difficulty 0 never extends, even on a bad roll
+    monkeypatch.setattr("dog_walker.toolbox.random.random", _acts_up)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "Reba", "lat": 0.0, "lon": 0.01, "walk_minutes": 20,
+              "difficulty": 0}]
+    reba = next(e for e in optimize_route(stops, start_time="09:00")["timeline"]
+                if e["stop"] == "Reba")
+    assert "difficulty_extra_min" not in reba and reba["walk_minutes"] == 20
+    # a difficult dog that happens to behave: also no overrun
+    monkeypatch.setattr("dog_walker.toolbox.random.random", _behaves)
+    stops[1] = {"name": "Tilde", "lat": 0.0, "lon": 0.01, "walk_minutes": 20,
+                "difficulty": 3}
+    tilde = next(e for e in optimize_route(stops, start_time="09:00")["timeline"]
+                 if e["stop"] == "Tilde")
+    assert "difficulty_extra_min" not in tilde and tilde["walk_minutes"] == 20
+
+
+def test_difficulty_overrun_can_push_past_sunset(monkeypatch):
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(2))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "Ralph", "lat": 0.0, "lon": 0.01, "walk_minutes": 30,
+              "walk_window": "afternoon", "difficulty": 5}]
+    sunset = 12 * 60 + 45   # 12:45 -- a 30-min afternoon walk just fits
+    monkeypatch.setattr("dog_walker.toolbox.random.random", _behaves)
+    assert optimize_route(stops, sunset_min=sunset)["feasible"] is True
+    # but a difficulty overrun (+25 -> 55 min) can't finish before dark
+    monkeypatch.setattr("dog_walker.toolbox.random.random", _acts_up)
+    r = optimize_route(stops, sunset_min=sunset)
+    assert r["feasible"] is False and "dark" in r["reason"]
 
 
 def test_walk_window_picks_its_own_start(monkeypatch):
@@ -599,3 +745,117 @@ def test_check_terrain_is_fetch_then_assess(monkeypatch):
     )
     r = check_terrain(41.9, -87.6, max_relief_m=30)
     assert r["verdict"] == "AVOID" and r["relief_m"] == 140
+
+
+# ---------------------------------------------------------------------
+# morning means FINISHED by noon (fixed 2026-09-17)
+# ---------------------------------------------------------------------
+
+
+def test_four_hour_long_morning_walks_are_infeasible(monkeypatch):
+    # the morning-overbook scenario. Four 60-minute morning walks from 7:00
+    # cannot all finish by noon. Until 2026-09-17 the tool called this
+    # feasible (last walk 11:35-12:35), and every model that relayed the
+    # tool's answer was graded as fabricating feasibility.
+    n = 5
+    # 2500 m between neighbours = 30 min walking. Leaving at 7:00 the
+    # fourth walk STARTS at 11:30 -- the old start-by-noon rule called that
+    # feasible -- and ENDS at 12:30, which is not a morning walk.
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(n, step=2500))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0}]
+    for i in range(1, n):
+        stops.append({"name": f"d{i}", "lat": 0.0, "lon": i * 0.01,
+                      "walk_minutes": 60, "walk_window": "morning"})
+    r = optimize_route(stops)
+    assert r["feasible"] is False
+    assert "window" in r["reason"]
+
+
+def test_morning_walks_that_only_START_before_noon_no_longer_pass(monkeypatch):
+    # the exact shape the tool used to get wrong: one walk starting at
+    # 11:30 and running to 12:30 is not a morning walk
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(3, step=1666))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "d1", "lat": 0.0, "lon": 0.01,
+              "walk_minutes": 60, "walk_window": "morning"},
+             {"name": "d2", "lat": 0.0, "lon": 0.02,
+              "walk_minutes": 60, "walk_window": "morning"}]
+    r = optimize_route(stops)
+    assert r["feasible"] is True
+    walks = [e for e in r["timeline"] if e.get("walk_window")]
+    assert len(walks) == 2
+    for e in walks:
+        assert e["walk_end"] <= "12:00", e
+
+
+def test_a_morning_walk_may_end_exactly_at_noon(monkeypatch):
+    # the boundary belongs to morning: ending AT 12:00 is fine
+    monkeypatch.setattr("dog_walker.toolbox._walking_matrix", line_matrix_of(2))
+    monkeypatch.setattr("dog_walker.toolbox._street_geometry", no_geometry)
+    stops = [{"name": "home", "lat": 0.0, "lon": 0.0},
+             {"name": "d1", "lat": 0.0, "lon": 0.01,
+              "walk_minutes": 60, "walk_window": "morning"}]
+    r = optimize_route(stops)
+    assert r["feasible"] is True
+    entry = r["timeline"][0]
+    assert entry["walk_end"] <= "12:00" and entry["window_met"] is True
+
+
+# ---------------------------------------------------------------------
+# routing cache / geometry skip / fallback counter
+# ---------------------------------------------------------------------
+
+
+def test_real_routes_are_cached_and_reused(monkeypatch, tmp_path):
+    # a sweep replays the same rosters hundreds of times; ORS should see
+    # each distinct coordinate set once
+    monkeypatch.setattr(toolbox, "ROUTE_CACHE_PATH", tmp_path / "routes.json")
+    monkeypatch.setattr(toolbox, "_route_cache", None)
+    monkeypatch.setattr(toolbox, "_ors_key", lambda: "k")
+    posts = []
+
+    class Resp:
+        status_code = 200
+
+        def raise_for_status(self): return None
+
+        def json(self): return {"distances": [[0, 900], [900, 0]]}
+
+    monkeypatch.setattr(toolbox.requests, "post",
+                        lambda *a, **k: (posts.append(1), Resp())[1])
+    coords = [(41.8781, -87.6298), (41.93, -87.65)]
+    first, real1 = toolbox._walking_matrix(coords)
+    second, real2 = toolbox._walking_matrix(coords)
+    assert real1 is real2 is True
+    assert first == second == [[0, 900], [900, 0]]
+    assert len(posts) == 1                       # second call served from cache
+    assert (tmp_path / "routes.json").exists()
+
+
+def test_fallback_is_counted_not_silent(monkeypatch, tmp_path):
+    monkeypatch.setattr(toolbox, "ROUTE_CACHE_PATH", tmp_path / "routes.json")
+    monkeypatch.setattr(toolbox, "_route_cache", None)
+    monkeypatch.setattr(toolbox, "ROUTE_FALLBACKS", {})
+    monkeypatch.setattr(toolbox, "_ors_key", lambda: "k")
+
+    def boom(*a, **k):
+        raise toolbox.requests.RequestException("Quota exceeded")
+
+    monkeypatch.setattr(toolbox.requests, "post", boom)
+    matrix, real = toolbox._walking_matrix([(41.0, -87.0), (41.1, -87.1)])
+    assert real is False and matrix[0][1] > 0    # straight-line still answers
+    assert sum(toolbox.ROUTE_FALLBACKS.values()) == 1
+    assert not (tmp_path / "routes.json").exists()   # fallbacks are never cached
+
+
+def test_geometry_request_is_skipped_when_no_map_is_drawn(monkeypatch):
+    monkeypatch.setattr(toolbox, "WANT_GEOMETRY", False)
+    monkeypatch.setattr(toolbox, "_ors_key", lambda: "k")
+
+    def boom(*a, **k):
+        raise AssertionError("should not call ORS for geometry")
+
+    monkeypatch.setattr(toolbox.requests, "post", boom)
+    assert toolbox._street_geometry([(41.0, -87.0), (41.1, -87.1)]) is None

@@ -160,6 +160,16 @@ def build_request(start_address: str, start_time: str, pets: list[dict]) -> str:
                 f"about {pet['max_relief_m']} metres of relief "
                 f"(max_relief_m)."
             )
+        if pet.get("difficulty"):
+            lines.append(
+                f"{pet['name']} is a difficult dog, difficulty "
+                f"{pet['difficulty']} out of 5 (pass as difficulty)."
+            )
+        if pet.get("skip_rain"):
+            lines.append(
+                f"{pet['name']} won't walk in the rain -- a minimal visit "
+                f"instead if it's wet (skip_rain)."
+            )
         if "comfort_min_f" in pet or "comfort_max_f" in pet:
             lines.append(
                 f"{pet['name']}'s comfortable temperature band is "

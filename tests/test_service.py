@@ -26,7 +26,7 @@ def scripted_chat(replies: list[dict]):
     appends _raw to state, and the auditor may read it)."""
     remaining = list(replies)
 
-    def fake_chat(backend, messages, think=False):
+    def fake_chat(backend, messages, think=False, deadline=None):
         reply = dict(remaining.pop(0))
         reply.setdefault("role", "assistant")
         reply.setdefault("content", "")
@@ -101,7 +101,7 @@ def test_prose_stall_yields_nudges_then_error(monkeypatch):
 
 
 def test_exception_in_stream_becomes_error_event(monkeypatch):
-    def exploding_chat(backend, messages, think=False):
+    def exploding_chat(backend, messages, think=False, deadline=None):
         raise ConnectionError("backend melted")
 
     monkeypatch.setattr(agent, "chat", exploding_chat)
@@ -135,9 +135,9 @@ def test_presets_endpoint_lists_the_rosters():
     assert {p["id"] for p in listed} == set(PRESETS)
 
 
-def test_seven_pets_is_a_422():
+def test_thirteen_pets_is_a_422():
     pets = [{"name": f"p{i}", "address": "123 Main St, Chicago",
-             "walk_minutes": 20} for i in range(7)]
+             "walk_minutes": 20} for i in range(13)]  # cap is 12
     r = client.post("/plan", json={"start_address": "A St, Chicago",
                                    "start_time": "09:00", "pets": pets})
     assert r.status_code == 422

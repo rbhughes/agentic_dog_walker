@@ -1,10 +1,10 @@
 {
-  "generated": "2026-09-15",
+  "generated": "2026-09-18",
   "totals": {
-    "runs": 210,
-    "cost": 1.6232,
+    "runs": 240,
+    "cost": 1.9555,
     "models": 6,
-    "scenarios": 7,
+    "scenarios": 8,
     "k": 5
   },
   "scenarios": [
@@ -14,21 +14,69 @@
     "terrain-roster",
     "full-house",
     "mixed-windows",
-    "morning-overbook"
+    "morning-overbook",
+    "grand-tour"
   ],
   "models": [
     {
       "id": "inclusionai/ling-3.0-flash",
       "short": "ling-3.0-flash",
-      "pass": 35,
-      "n": 35,
+      "pass": 40,
+      "n": 40,
       "ci": [
-        0.9,
+        0.91,
         1.0
       ],
-      "cost": 0.00042,
-      "sec": 10,
+      "cost": 0.000356,
+      "sec": 15,
       "cells": [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+      ],
+      "note": null
+    },
+    {
+      "id": "qwen/qwen3.7-flash",
+      "short": "qwen3.7-flash",
+      "pass": 40,
+      "n": 40,
+      "ci": [
+        0.91,
+        1.0
+      ],
+      "cost": 0.000832,
+      "sec": 30,
+      "cells": [
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5,
+        5
+      ],
+      "note": null
+    },
+    {
+      "id": "inception/mercury-2.5",
+      "short": "mercury-2.5",
+      "pass": 40,
+      "n": 40,
+      "ci": [
+        0.91,
+        1.0
+      ],
+      "cost": 0.001392,
+      "sec": 11,
+      "cells": [
+        5,
         5,
         5,
         5,
@@ -42,14 +90,14 @@
     {
       "id": "anthropic/claude-haiku-4.5",
       "short": "haiku-4.5",
-      "pass": 35,
-      "n": 35,
+      "pass": 40,
+      "n": 40,
       "ci": [
-        0.9,
+        0.91,
         1.0
       ],
-      "cost": 0.026485,
-      "sec": 15,
+      "cost": 0.033127,
+      "sec": 22,
       "cells": [
         5,
         5,
@@ -57,50 +105,7 @@
         5,
         5,
         5,
-        5
-      ],
-      "note": null
-    },
-    {
-      "id": "qwen/qwen3-8b",
-      "short": "qwen3-8b",
-      "pass": 34,
-      "n": 35,
-      "ci": [
-        0.85,
-        0.99
-      ],
-      "cost": 0.007367,
-      "sec": 54,
-      "cells": [
         5,
-        5,
-        5,
-        5,
-        4,
-        5,
-        5
-      ],
-      "note": "prior default"
-    },
-    {
-      "id": "qwen/qwen3.7-flash",
-      "short": "qwen3.7-flash",
-      "pass": 33,
-      "n": 35,
-      "ci": [
-        0.81,
-        0.98
-      ],
-      "cost": 0.000789,
-      "sec": 23,
-      "cells": [
-        5,
-        5,
-        5,
-        5,
-        4,
-        4,
         5
       ],
       "note": null
@@ -108,59 +113,65 @@
     {
       "id": "openai/gpt-oss-120b",
       "short": "gpt-oss-120b",
-      "pass": 30,
-      "n": 35,
+      "pass": 36,
+      "n": 38,
       "ci": [
-        0.71,
-        0.94
+        0.83,
+        0.99
       ],
-      "cost": 0.001858,
-      "sec": 68,
+      "cost": 0.001168,
+      "sec": 128,
       "cells": [
         5,
-        3,
+        5,
+        5,
         5,
         4,
-        3,
         5,
-        5
+        5,
+        2
       ],
       "note": null
     },
     {
-      "id": "inception/mercury-2.5",
-      "short": "mercury-2.5",
-      "pass": 25,
-      "n": 35,
+      "id": "qwen/qwen3-8b",
+      "short": "qwen3-8b",
+      "pass": 34,
+      "n": 40,
       "ci": [
-        0.55,
-        0.84
+        0.71,
+        0.93
       ],
-      "cost": 0.001026,
-      "sec": 6,
+      "cost": 0.006517,
+      "sec": 75,
       "cells": [
         3,
+        5,
+        5,
+        5,
         4,
-        4,
-        4,
-        4,
-        3,
-        3
+        5,
+        5,
+        2
       ],
-      "note": null
+      "note": "prior default"
     }
   ],
   "taxonomy": [
     {
+      "name": "veto_livelock",
+      "n": 5
+    },
+    {
+      "name": "false_infeasible",
+      "n": 3
+    },
+    {
       "name": "backend_error",
-      "n": 15
+      "n": 1
     },
     {
-      "name": "fabricated_feasible",
-      "n": 2
-    },
-    {
-      "name": "prose_stall",
+      "name": "timeout",
       "n": 1
     }
   ]

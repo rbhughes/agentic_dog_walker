@@ -21,12 +21,14 @@ an event stream for the web UI, so run()'s internals will move.
 
 from __future__ import annotations
 
+import http.client as http_client
 import json
 import os
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import jsonschema
@@ -54,6 +56,84 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "inclusionai/ling-3.0-flash"
 
 MAX_ROUNDS = 14
+# Resilience budget. The design that failed twice: a per-CALL timeout is the
+# wrong knob to make aggressive, because a slow-but-working model needs a
+# generous WHOLE-RUN budget while a genuinely hung endpoint must still be
+# bounded. So we separate them: chat() gets a generous per-call read timeout
+# AND an absolute run deadline (passed in by run_events); it retries with
+# EXPONENTIAL backoff honoring OpenRouter's Retry-After on 429s, but never
+# sleeps or reads past the deadline. Total run time is therefore bounded by
+# AGENT_RUN_BUDGET_S no matter how many providers throttle us.
+CHAT_TIMEOUT_S = 120       # per-call read timeout (room for one slow round)
+# Output caps. ACT was 700 until 2026-09-17: in the overnight sweep 16 of 18
+# malformed_output failures were grand-tour (6 dogs), across all five models
+# that hit it, with cut-off-JSON errors -- the signature of a reply truncated
+# at the cap. finish reasons are now recorded per attempt, and a live
+# grand-tour check (ling-3.0-flash) proved it: 4 of 12 good act replies were
+# 757-1742 tokens, and one reply hit a 2000 cap four times in a row. Output
+# tokens are billed as produced, so a generous cap costs nothing unless used.
+PLAN_MAX_TOKENS = 4000
+ACT_MAX_TOKENS = 4000
+# Values providers use for "stopped at max_tokens". Check native_finish_reason
+# too: in that check OpenRouter normalized all four cut-off replies to
+# "tool_calls" while the provider's native reason said "length".
+_CAP_REASONS = {"length", "max_tokens", "max_output_tokens"}
+
+
+def _hit_cap(a: dict) -> bool:
+    return any(str(a.get(k) or "").lower() in _CAP_REASONS
+               for k in ("finish_reason", "native_finish_reason"))
+CHAT_ATTEMPTS = 6          # patient with 429s -- backoff clears most
+CHAT_BACKOFF_BASE_S = 4    # 4, 8, 16, 32, 60... (>=2x the old 1s, exponential)
+CHAT_BACKOFF_MAX_S = 60    # cap a single sleep
+AGENT_RUN_BUDGET_S = 300   # absolute wall-clock per run; bounds ALL retries
+# CAVEAT (verified 2026-09-16): CHAT_TIMEOUT_S bounds each socket READ, not
+# the whole call. OpenRouter answers non-streaming requests with headers in
+# ~1s, then whitespace keep-alive chunks while the model works, then the JSON.
+# Every chunk resets the read timer, so a slow generation is never cut off by
+# it, and the run deadline is only checked BETWEEN calls. A single call can
+# therefore run far past both budgets. The timing diagnostics below exist to
+# show where that time goes.
+
+# ---------------------------------------------------------------------
+# diagnostics: a live, append-only call log. The measurement harness sets
+# CALL_LOG (and per-run CALL_LOG_CONTEXT); the web service leaves it None.
+# Lines are written BEFORE each request as well as after, so a call that
+# hangs is visible while it hangs, not only once it returns.
+# ---------------------------------------------------------------------
+
+CALL_LOG: Path | None = None
+CALL_LOG_CONTEXT: dict = {}
+
+
+def _log_call(record: dict) -> None:
+    if CALL_LOG is None:
+        return
+    line = {"ts": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+            **CALL_LOG_CONTEXT, **record}
+    try:
+        with open(CALL_LOG, "a") as fh:
+            fh.write(json.dumps(line) + "\n")
+    except OSError:
+        pass  # diagnostics must never break a run
+
+
+def _host_sleep_s(wall0: float, mono0: float) -> float:
+    """Seconds the machine spent asleep since (wall0, mono0). macOS's
+    monotonic clock stops during sleep while wall time keeps going, so the
+    gap is sleep. Verified 2026-09-17: the overnight sweep recorded 5.48h of
+    run time across 18.8h of wall time; the Mac was awake 5.45h of it."""
+    return max((time.time() - wall0) - (time.monotonic() - mono0), 0.0)
+
+
+class ChatFailed(RuntimeError):
+    """chat() gave up. Carries the per-attempt timing log so a failed call's
+    time is still attributable (throttling vs provider error vs timeout)."""
+
+    def __init__(self, message: str, attempts_log: list[dict], throttles: int):
+        super().__init__(message)
+        self.attempts_log = attempts_log
+        self.throttles = throttles
 
 
 # ---------------------------------------------------------------------
@@ -116,18 +196,60 @@ TOOLS = [schema for _fn, schema in REGISTRY.values()] + [SUBMIT_PLAN_SCHEMA]
 # ---------------------------------------------------------------------
 
 
-def chat(model: str, messages: list, think: bool = False) -> dict:
+def _retry_after_seconds(err: Exception) -> float | None:
+    """The server's suggested wait from a 429/503 Retry-After header, in
+    seconds, or None. OpenRouter's docs say to honor it -- the upstream
+    provider is telling us exactly how long it's saturated for."""
+    hdrs = getattr(err, "headers", None)
+    if not hdrs:
+        return None
+    raw = hdrs.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        return float(raw)                    # delta-seconds form
+    except (TypeError, ValueError):
+        return None                          # HTTP-date form: ignore, back off
+
+
+def _backoff_seconds(attempt: int, retry_after: float | None) -> float:
+    """How long to sleep before the next attempt: the server's Retry-After
+    if it gave one, else exponential (4, 8, 16, 32, ...), capped."""
+    if retry_after is not None:
+        return min(retry_after, CHAT_BACKOFF_MAX_S)
+    return min(CHAT_BACKOFF_BASE_S * (2 ** attempt), CHAT_BACKOFF_MAX_S)
+
+
+def _sleep_before_retry(attempt: int, retry_after: float | None,
+                        deadline: float | None) -> float:
+    """Back off before the next attempt, but never sleep past the run
+    deadline -- a backoff that would overrun it is pointless (the next
+    read couldn't start anyway) and would blow the wall-clock budget."""
+    wait = _backoff_seconds(attempt, retry_after)
+    if deadline is not None:
+        wait = min(wait, max(0.0, deadline - time.monotonic()))
+    if wait > 0:
+        time.sleep(wait)
+    return round(max(wait, 0.0), 2)
+
+
+def chat(model: str, messages: list, think: bool = False,
+         deadline: float | None = None) -> dict:
     """One model round. Returns the normalized message:
     {"role", "content", "tool_calls": [arguments as dicts], "_raw"}.
     _raw is the wire-format original -- always resend THAT.
 
-    Retries transient failures (4 attempts, backoff): network, timeouts,
+    Retries transient failures with EXPONENTIAL backoff (network, timeouts,
     429, 5xx, AND a 200 whose body is UNUSABLE -- no `choices`, or
-    tool-call arguments that don't parse (truncated / malformed JSON).
-    That last class used to escape as a terminal error and get counted
-    against the model; measured, it was a large share of the
-    'backend_error' noise (mercury's empty completions, gpt-oss's
-    truncated tool JSON). A 400 gets one retry without the reasoning
+    tool-call arguments that don't parse). On a 429 it honors OpenRouter's
+    Retry-After header (their documented guidance: the provider is
+    throttling, wait the stated time). `deadline` is an absolute
+    time.monotonic() value: no read or backoff is allowed to run past it,
+    so the WHOLE run stays bounded by AGENT_RUN_BUDGET_S even under heavy
+    throttling -- a slow model gets its time, a hung one still can't hang.
+    That unusable-200 class used to escape as a terminal error and get
+    counted against the model; measured, it was a large share of the
+    'backend_error' noise. A 400 gets one retry without the reasoning
     block. Other 4xx are our bug -- fail fast."""
     key = os.environ.get("OPENROUTER_API_KEY", "")
     if not key:
@@ -137,7 +259,7 @@ def chat(model: str, messages: list, think: bool = False) -> dict:
         "messages": messages,
         "tools": TOOLS,
         "temperature": 0,
-        "max_tokens": 2000 if think else 700,
+        "max_tokens": PLAN_MAX_TOKENS if think else ACT_MAX_TOKENS,
         "reasoning": {"enabled": think},
         # ask OpenRouter to return real accounting (token counts + the
         # actual dollar cost of THIS call) in the response's usage block;
@@ -150,9 +272,67 @@ def chat(model: str, messages: list, think: bool = False) -> dict:
     }
     req = urllib.request.Request(OPENROUTER_URL, json.dumps(body).encode(), headers)
     last_error: Exception | None = None
-    for attempt in range(4):
+    started = time.monotonic()
+    throttles = 0   # how many 429s we rode out; surfaced for flakiness stats
+    # one entry per HTTP attempt: where the wall-clock went. status is
+    # ok | http_<code> | timeout | network:<Exc> | unusable:<Exc>
+    attempts_log: list[dict] = []
+    truncated = False      # a 200 cut off at max_tokens: retrying can't help
+
+    def finish(a: dict, t0: float, http: Any = None) -> None:
+        a["total_s"] = round(time.monotonic() - t0, 2)
+        slept = _host_sleep_s(a.pop("_wall0"), t0)
+        if slept > 1:
+            a["host_sleep_s"] = round(slept, 1)   # our machine, not the model
+        hdrs = getattr(http, "headers", None)
+        if hdrs is not None and not a.get("generation_id"):
+            a["generation_id"] = hdrs.get("X-Generation-Id")
+        attempts_log.append(a)
+        _log_call({"event": "attempt_end", "model": model, "think": think, **a})
+
+    for attempt in range(CHAT_ATTEMPTS):
+        # never start a read we can't finish before the run deadline
+        remaining = None if deadline is None else deadline - time.monotonic()
+        if remaining is not None and remaining <= 1:
+            last_error = last_error or RuntimeError(
+                f"run budget exhausted before attempt {attempt + 1}")
+            break
+        read_timeout = CHAT_TIMEOUT_S if remaining is None else min(
+            CHAT_TIMEOUT_S, remaining)
+        a: dict = {"attempt": attempt + 1,
+                   "offset_s": round(time.monotonic() - started, 2),
+                   "_wall0": time.time()}
+        _log_call({"event": "attempt_start", "model": model, "think": think,
+                   "attempt": attempt + 1})
+        t0 = time.monotonic()
+        http = None
         try:
-            resp = json.load(urllib.request.urlopen(req, timeout=180))
+            http = urllib.request.urlopen(req, timeout=read_timeout)
+            # headers arrive fast; the body (after keep-alive whitespace)
+            # arrives when the model is done. Splitting the two separates
+            # OpenRouter's front door from generation.
+            a["headers_s"] = round(time.monotonic() - t0, 2)
+            payload = http.read()
+            a["bytes"] = len(payload)
+            resp = json.loads(payload)
+            # recorded BEFORE parsing tool calls, so an unusable reply still
+            # says why it ended: "length" = cut off at our max_tokens
+            a["generation_id"] = resp.get("id")
+            choice = (resp.get("choices") or [{}])[0]
+            a["finish_reason"] = choice.get("finish_reason")
+            a["native_finish_reason"] = choice.get("native_finish_reason")
+            a["completion_tokens"] = (resp.get("usage") or {}).get("completion_tokens")
+            a["provider"] = resp.get("provider")
+            _msg = choice.get("message") or {}
+            _args = [str((tc.get("function") or {}).get("arguments") or "")
+                     for tc in (_msg.get("tool_calls") or [])]
+            a["tool_calls_n"] = len(_args)
+            a["args_chars"] = sum(len(x) for x in _args)
+            # where the completion tokens went: measured 2026-09-17, ling's
+            # think-off replies ran 1000-1770 tokens for <1900 chars of
+            # arguments, so most output was prose or reasoning
+            a["content_chars"] = len(str(_msg.get("content") or ""))
+            a["reasoning_chars"] = len(str(_msg.get("reasoning") or ""))
             # PARSE inside the retry: a 200 whose body has no choices or
             # whose tool-call arguments don't parse is a transient
             # provider glitch, not the model's answer -- so a failure
@@ -172,9 +352,39 @@ def chat(model: str, messages: list, think: bool = False) -> dict:
             norm["tool_calls"] = tool_calls
             norm["_raw"] = raw
             norm["_usage"] = resp.get("usage")  # {prompt_tokens, completion_tokens, cost}
+            a["status"] = "ok"
+            if _hit_cap(a):
+                # parsed, but cut off: tool calls after the cut are silently
+                # missing. Kept as ok (the model can recover) and flagged.
+                a["cap_hit"] = True
+            finish(a, t0, http)
+            # post-hoc call stats: latency, how many attempts it took, and
+            # the upstream provider OpenRouter actually routed to (when it
+            # reports it). This is how provider flakiness gets separated
+            # from model competence downstream.
+            norm["_meta"] = {
+                "latency_s": round(time.monotonic() - started, 2),
+                "attempts": attempt + 1,
+                "throttles": throttles,
+                "provider": resp.get("provider"),
+                "generation_id": resp.get("id"),
+                "attempts_log": attempts_log,
+            }
             return norm
         except urllib.error.HTTPError as e:
-            if e.code == 429 or e.code >= 500:
+            a["status"] = f"http_{e.code}"
+            try:   # WHY it was refused; 400s were undiagnosable without this
+                a["error_body"] = e.read()[:400].decode("utf-8", "replace")
+            except Exception:  # noqa: BLE001 -- diagnostics only
+                pass
+            finish(a, t0, e)
+            retry_after = None
+            if e.code == 429:
+                throttles += 1
+                retry_after = _retry_after_seconds(e)  # honor the server
+                a["retry_after"] = retry_after
+                last_error = e
+            elif e.code >= 500:
                 last_error = e
             elif e.code == 400 and body.pop("reasoning", None) is not None:
                 # some models reject the reasoning block outright;
@@ -184,17 +394,51 @@ def chat(model: str, messages: list, think: bool = False) -> dict:
                 )
                 last_error = e
             else:
-                raise
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
+                # not transient: fail fast, but keep the log and the reason
+                raise ChatFailed(
+                    f"request refused: HTTP {e.code}: {a.get('error_body', '')[:200]}",
+                    attempts_log, throttles) from e
+            a["backoff_s"] = _sleep_before_retry(attempt, retry_after, deadline)
+            continue
+        except (urllib.error.URLError, TimeoutError, OSError,
+                http_client.HTTPException) as e:
+            # HTTPException covers IncompleteRead: the connection dropped
+            # mid-body. It is NOT an OSError, so until 2026-09-17 it escaped
+            # this retry loop and ended the run on the first drop.
+            timed_out = isinstance(e, TimeoutError) or "timed out" in str(e)
+            a["status"] = "timeout" if timed_out else f"network:{type(e).__name__}"
+            finish(a, t0, http)
             last_error = e
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             # 200 but the body is unusable: missing choices, or tool-call
             # arguments that were truncated / malformed. Retry like a 5xx.
+            a["status"] = f"unusable:{type(e).__name__}"
+            # what the broken reply looked like: a cut-off batch and a
+            # runaway repetition loop read very differently at the tail
+            if a.get("tool_calls_n"):
+                joined = " | ".join(_args)
+                a["args_head"] = joined[:300]
+                a["args_tail"] = joined[-300:]
+            finish(a, t0, http)
             last_error = e
-        time.sleep(2**attempt)  # 1s, 2s, 4s between attempts
-    raise RuntimeError(
-        f"model backend unusable after 4 attempts: "
-        f"{type(last_error).__name__}: {last_error}"
+            if _hit_cap(a):
+                # same request, same cap, temperature 0: a retry would be
+                # cut off again. Stop and say so.
+                truncated = True
+                break
+        a["backoff_s"] = _sleep_before_retry(attempt, None, deadline)
+    if truncated:
+        raise ChatFailed(
+            f"reply truncated at max_tokens={body['max_tokens']} "
+            f"({round(time.monotonic() - started)}s): "
+            f"{type(last_error).__name__}: {last_error}",
+            attempts_log, throttles,
+        )
+    raise ChatFailed(
+        f"model backend unusable after {CHAT_ATTEMPTS} attempts "
+        f"({round(time.monotonic() - started)}s, {throttles} throttled): "
+        f"{type(last_error).__name__}: {last_error}",
+        attempts_log, throttles,
     )
 
 
@@ -390,6 +634,40 @@ def audit_terrain_coverage(messages: list) -> str | None:
     return None
 
 
+def audit_daylight(messages: list) -> str | None:
+    """The daylight oracle: no dog is walked after dark. Any roster with
+    an explicit AFTERNOON dog (an 'any' dog is scheduled early, so it
+    can't run late) must have called check_daylight and passed sunset_min
+    to optimize_route -- otherwise the route can't know when darkness
+    falls and could schedule past it. Returns one prescriptive message,
+    or None."""
+    route_call, called_daylight = None, False
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls") or []:
+            name = tc["function"]["name"]
+            if name == "optimize_route":
+                route_call = _call_args(tc)
+            elif name == "check_daylight":
+                called_daylight = True
+    if route_call is None:
+        return None  # no route yet; other auditors handle that
+    afternoon = [s for s in route_call["stops"]
+                 if s.get("walk_window") == "afternoon"]
+    if not afternoon:
+        return None  # nothing can run late
+    if not called_daylight or route_call.get("sunset_min") is None:
+        names = ", ".join(s["name"] for s in afternoon)
+        return (
+            f"REJECTED: {names} may be walked in the afternoon and no dog "
+            "is walked after dark. Call check_daylight for the walking area "
+            "and date, then call optimize_route again passing sunset_min so "
+            "every walk finishes before sunset."
+        )
+    return None
+
+
 def audit_weather_coverage(messages: list) -> str | None:
     """None if every dog's walk interval has a covering weather check,
     else ONE corrective sentence to inject. One gap per audit -- the
@@ -497,6 +775,170 @@ def audit_weather_coverage(messages: list) -> str | None:
     return None
 
 
+def audit_rain(messages: list, plan: dict) -> str | None:
+    """The rain oracle: a skip_rain dog won't walk when it's wet. If such
+    a dog's walk window is raining (>= RAIN_TRIGGER_MM, from its weather
+    check), its submit_plan entry must be a short minimal visit, not a
+    full walk. Reads precip from the weather RESULT correlated to its
+    call by tool_call_id. Returns a prescriptive message, or None."""
+    from dog_walker.toolbox import MINIMAL_VISIT_MIN, RAIN_TRIGGER_MM
+
+    results_by_id: dict = {}
+    for msg in messages:
+        if msg.get("role") == "tool":
+            try:
+                results_by_id[msg.get("tool_call_id")] = json.loads(
+                    msg.get("content") or "{}")
+            except (ValueError, TypeError):
+                pass
+    route_call, weather = None, []
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls") or []:
+            name = tc["function"]["name"]
+            if name == "optimize_route":
+                route_call = _call_args(tc)
+            elif name == "check_weather":
+                weather.append((_call_args(tc), results_by_id.get(tc.get("id"))))
+    if route_call is None:
+        return None
+    walks = {w.get("pet"): w for w in (plan.get("walks") or [])}
+
+    gaps = []
+    for stop in route_call["stops"]:
+        if not stop.get("skip_rain"):
+            continue
+        lat, lon = stop["lat"], stop["lon"]
+        precip = None
+        for args, res in weather:
+            if not isinstance(res, dict):
+                continue
+            if (abs(args.get("lat", 999) - lat) <= _NEAR_DEG
+                    and abs(args.get("lon", 999) - lon) <= _NEAR_DEG):
+                mp = (res.get("window") or {}).get("max_precip_mm")
+                if mp is not None:
+                    precip = mp if precip is None else max(precip, mp)
+        if precip is None or precip < RAIN_TRIGGER_MM:
+            continue  # dry (or not yet checked -- the weather oracle covers that)
+        w = walks.get(stop["name"])
+        if not w or "walk_start" not in w or "walk_end" not in w:
+            continue  # missing walk -- feasibility/coverage auditors handle it
+        try:
+            dur = (_clock_to_hours(w["walk_end"])
+                   - _clock_to_hours(w["walk_start"])) * 60
+        except (ValueError, KeyError, AttributeError):
+            continue
+        if dur > MINIMAL_VISIT_MIN + 5:  # a little slack over the minimal visit
+            gaps.append(
+                f"{stop['name']} won't walk in the rain and it's wet: give a "
+                f"minimal ~{MINIMAL_VISIT_MIN}-minute visit, not a "
+                f"{round(dur)}-minute walk."
+            )
+    if gaps:
+        return "REJECTED: " + " ".join(gaps)
+    return None
+
+
+def _tool_calls_and_results(messages: list) -> tuple:
+    """(route_call, {tool: [(args, result)]}) -- every tool call paired
+    with its result via tool_call_id. The synthesis auditors need results,
+    not just call args."""
+    results_by_id: dict = {}
+    for msg in messages:
+        if msg.get("role") == "tool":
+            try:
+                results_by_id[msg.get("tool_call_id")] = json.loads(
+                    msg.get("content") or "{}")
+            except (ValueError, TypeError):
+                pass
+    route_call, by_tool = None, {}
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls") or []:
+            name = tc["function"]["name"]
+            if name == "optimize_route":
+                route_call = _call_args(tc)
+            else:
+                by_tool.setdefault(name, []).append(
+                    (_call_args(tc), results_by_id.get(tc.get("id"))))
+    return route_call, by_tool
+
+
+def audit_priority(messages: list) -> str | None:
+    """Priority is DERIVED, not given: the model must compute each dog's
+    urgency (dog_priority) and pass it to optimize_route. Recompute it and
+    veto any dog whose passed priority is missing or wrong."""
+    from dog_walker.toolbox import dog_priority
+    route_call, _ = _tool_calls_and_results(messages)
+    if route_call is None:
+        return None
+    gaps = []
+    for stop in route_call["stops"]:
+        if int(stop.get("walk_minutes", 0) or 0) == 0:
+            continue  # the depot has no dog
+        want = dog_priority(stop)
+        got = stop.get("priority")
+        if got is None or int(got) != want:
+            gaps.append(f"{stop['name']} should be {want}"
+                        + (f", not {got}" if got is not None else " (missing)"))
+    if gaps:
+        return ("REJECTED: compute each dog's priority (+2 needs_meds, +2 "
+                "comfort band <=30F wide, +1 difficulty>=3, +1 afternoon) and "
+                "pass it in the optimize_route stops: " + "; ".join(gaps) + ".")
+    return None
+
+
+_SEVERITY = ["OK", "CAUTION", "SHORTEN", "DO_NOT_WALK"]
+_TERRAIN_AS_WALK = {"OK": "OK", "CAUTION": "CAUTION", "AVOID": "DO_NOT_WALK"}
+
+
+def audit_verdict(messages: list, plan: dict) -> str | None:
+    """Each dog's plan verdict must be the WORST of its weather verdict and
+    its terrain verdict (a hill AVOID blocks a walk as surely as a
+    DO_NOT_WALK). The model must COMBINE the two tool outputs; recompute
+    the worst and veto any dog whose submitted verdict disagrees."""
+    route_call, by_tool = _tool_calls_and_results(messages)
+    if route_call is None:
+        return None
+    weather = by_tool.get("check_weather", [])
+    terrain = by_tool.get("check_terrain", [])
+    walks = {w.get("pet"): w for w in (plan.get("walks") or [])}
+
+    def verdict_near(calls, lat, lon):
+        for args, res in calls:
+            if not isinstance(res, dict):
+                continue
+            if (abs(args.get("lat", 999) - lat) <= _NEAR_DEG
+                    and abs(args.get("lon", 999) - lon) <= _NEAR_DEG):
+                return res.get("verdict")
+        return None
+
+    gaps = []
+    for stop in route_call["stops"]:
+        if int(stop.get("walk_minutes", 0) or 0) == 0:
+            continue
+        wv = verdict_near(weather, stop["lat"], stop["lon"])
+        if wv is None or wv not in _SEVERITY:
+            continue  # no weather yet -- the weather auditor handles that
+        sev = _SEVERITY.index(wv)
+        tv = verdict_near(terrain, stop["lat"], stop["lon"])
+        if tv in _TERRAIN_AS_WALK:
+            sev = max(sev, _SEVERITY.index(_TERRAIN_AS_WALK[tv]))
+        want = _SEVERITY[sev]
+        w = walks.get(stop["name"])
+        if not w or "verdict" not in w:
+            continue
+        if w["verdict"] != want:
+            gaps.append(
+                f"{stop['name']} verdict should be {want} (worst of weather "
+                f"{wv}" + (f" and terrain {tv}" if tv else "") + f"), not {w['verdict']}")
+    if gaps:
+        return "REJECTED: " + "; ".join(gaps) + "."
+    return None
+
+
 # ---------------------------------------------------------------------
 # 3: the loop -- as an EVENT STREAM.
 #
@@ -558,6 +1000,34 @@ def run_events(request: str, model: str | None = None):
     today = datetime.now().astimezone()
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
     last_round = 0
+    retries = 0            # extra chat attempts beyond the first = provider friction
+    throttles = 0          # 429s ridden out with backoff = throttling, specifically
+    providers: set = set()  # upstream providers OpenRouter routed to
+    # diagnostics: one entry per chat() call and per tool dispatch, in order,
+    # so a run's wall-clock can be split into model time, throttling,
+    # provider failures, and our own tools
+    timing: list[dict] = []
+    deadline = time.monotonic() + AGENT_RUN_BUDGET_S  # bounds every chat() retry
+
+    def absorb(reply: dict, phase: str, round_no: int) -> None:
+        nonlocal retries, throttles
+        _accumulate_usage(usage, reply.get("_usage"))
+        meta = reply.get("_meta") or {}
+        retries += meta.get("attempts", 1) - 1
+        throttles += meta.get("throttles", 0)
+        if meta.get("provider"):
+            providers.add(meta["provider"])
+        timing.append({"kind": "chat", "phase": phase, "round": round_no,
+                       "wall_s": meta.get("latency_s"),
+                       "generation_id": meta.get("generation_id"),
+                       "provider": meta.get("provider"),
+                       "usage": reply.get("_usage"),
+                       "attempts": meta.get("attempts_log", [])})
+
+    def extras() -> dict:
+        return {"usage": dict(usage), "rounds": last_round,
+                "retries": retries, "throttles": throttles,
+                "providers": sorted(providers), "timing": timing}
     yield {"event": "start", "model": model, "backend": "openrouter"}
 
     messages: list[dict] = [
@@ -576,8 +1046,20 @@ def run_events(request: str, model: str | None = None):
                 "max_relief_m. Include each dog's buffer_minutes, comfort "
                 "band, needs_meds (boolean; adds handling time), and "
                 "walk_window (any/morning/afternoon) in the optimize_route "
-                "stops. If optimize_route returns feasible=false, the "
-                "morning/afternoon windows cannot all be arranged: "
+                "stops. For EACH dog you must also COMPUTE a priority and "
+                "pass it in the optimize_route stop: +2 needs_meds, +2 if "
+                "the comfort band is <=30F wide, +1 difficulty>=3, +1 "
+                "afternoon window (0-6). If any dog has an afternoon window, "
+                "call check_daylight for the area and pass sunset_min to "
+                "optimize_route -- no dog is walked after dark. Each dog's "
+                "submit_plan verdict is the WORST of its weather verdict and "
+                "its terrain verdict (a terrain AVOID counts as "
+                "DO_NOT_WALK). A dog with "
+                "skip_rain that finds rain in its window (raining=true) "
+                "gets a short ~10-minute minimal visit, not its full walk. "
+                "If "
+                "optimize_route returns feasible=false, the windows can't "
+                "all be arranged before dark: "
                 "submit_plan with feasible=false and explain. Otherwise "
                 "submit with feasible=true. Weather windows are whole "
                 "hours with an "
@@ -595,8 +1077,8 @@ def run_events(request: str, model: str | None = None):
         # later think-off rounds see it. If it already proposes calls,
         # the act machinery below handles them -- planning and acting
         # are allowed to overlap.
-        plan_reply = chat(model, messages, think=True)
-        _accumulate_usage(usage, plan_reply.get("_usage"))
+        plan_reply = chat(model, messages, think=True, deadline=deadline)
+        absorb(plan_reply, "plan", 0)
         messages.append(plan_reply["_raw"])
         if text := _plan_text(plan_reply):
             yield {"event": "plan", "text": text}
@@ -628,36 +1110,60 @@ def run_events(request: str, model: str | None = None):
 
                 if name == "submit_plan":
                     # ---- REFLECT: deterministic oracles, each with a veto.
-                    # Feasibility first: it settles whether the plan even
+                    # Daylight first: if the route didn't account for
+                    # sunset, its feasibility can't be trusted yet, so
+                    # force the sunset-aware route before judging anything.
+                    if gap := audit_daylight(messages):
+                        yield {"event": "audit_veto", "auditor": "daylight", "gap": gap}
+                        messages.append(tool_feedback(call, {"error": gap}))
+                        continue
+                    if gap := audit_priority(messages):
+                        yield {"event": "audit_veto", "auditor": "priority", "gap": gap}
+                        messages.append(tool_feedback(call, {"error": gap}))
+                        continue
+                    # Feasibility next: it settles whether the plan even
                     # claims the walks happen. An honestly-infeasible plan
                     # has no timeline to weather-check, so it stops here.
                     if gap := audit_feasibility(messages, arguments):
-                        yield {"event": "audit_veto", "gap": gap}
+                        yield {"event": "audit_veto", "auditor": "feasibility", "gap": gap}
                         messages.append(tool_feedback(call, {"error": gap}))
                         continue
                     if arguments.get("feasible") is False:
-                        yield {"event": "final", "plan": arguments,
-                               "usage": dict(usage), "rounds": last_round}
+                        yield {"event": "final", "plan": arguments, **extras()}
                         return
                     if gap := audit_weather_coverage(messages):
-                        yield {"event": "audit_veto", "gap": gap}
+                        yield {"event": "audit_veto", "auditor": "weather", "gap": gap}
+                        messages.append(tool_feedback(call, {"error": gap}))
+                        continue
+                    if gap := audit_verdict(messages, arguments):
+                        yield {"event": "audit_veto", "auditor": "verdict", "gap": gap}
+                        messages.append(tool_feedback(call, {"error": gap}))
+                        continue
+                    if gap := audit_rain(messages, arguments):
+                        yield {"event": "audit_veto", "auditor": "rain", "gap": gap}
                         messages.append(tool_feedback(call, {"error": gap}))
                         continue
                     if gap := audit_terrain_coverage(messages):
-                        yield {"event": "audit_veto", "gap": gap}
+                        yield {"event": "audit_veto", "auditor": "terrain", "gap": gap}
                         messages.append(tool_feedback(call, {"error": gap}))
                         continue
-                    yield {"event": "final", "plan": arguments,
-                           "usage": dict(usage), "rounds": last_round}
+                    yield {"event": "final", "plan": arguments, **extras()}
                     return
 
+                _log_call({"event": "tool_start", "tool": name})
+                t_tool = time.monotonic()
                 result = dispatch(name, arguments)
+                tool_s = round(time.monotonic() - t_tool, 2)
+                timing.append({"kind": "tool", "name": name, "round": round_no,
+                               "seconds": tool_s,
+                               "error": isinstance(result, dict) and "error" in result})
+                _log_call({"event": "tool_end", "tool": name, "seconds": tool_s})
                 yield {"event": "result", "name": name, "result": result}
                 messages.append(tool_feedback(call, result))
 
             # ---- next model round (think off: plan is already in state)
-            reply = chat(model, messages, think=False)
-            _accumulate_usage(usage, reply.get("_usage"))
+            reply = chat(model, messages, think=False, deadline=deadline)
+            absorb(reply, "act", round_no)
             messages.append(reply["_raw"])
             pending = reply.get("tool_calls") or []
 
@@ -683,12 +1189,19 @@ def run_events(request: str, model: str | None = None):
                 f"no submit_plan within {MAX_ROUNDS} rounds; last message: "
                 f"{_brief(messages[-1].get('content') or '', 200)}"
             ),
-            "usage": dict(usage),
-            "rounds": last_round,
+            **extras(),
         }
     except Exception as e:  # noqa: BLE001 -- stream boundary: fail as an event
-        yield {"event": "error", "message": f"{type(e).__name__}: {e}",
-               "usage": dict(usage), "rounds": last_round}
+        if isinstance(e, ChatFailed):
+            # the call that killed the run still spent real time: keep it
+            throttles += e.throttles
+            retries += max(len(e.attempts_log) - 1, 0)
+            timing.append({"kind": "chat", "phase": "failed", "round": last_round,
+                           "wall_s": round(sum(a.get("total_s", 0) + a.get("backoff_s", 0)
+                                               for a in e.attempts_log), 2),
+                           "generation_id": None, "provider": None, "usage": None,
+                           "attempts": e.attempts_log})
+        yield {"event": "error", "message": f"{type(e).__name__}: {e}", **extras()}
 
 
 def run(request: str, model: str | None = None, verbose: bool = True) -> dict:

@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-09-15T10:00:00.000000-05:00",
-  "source": "2026-09-14 measurement sweep (dog_walker.measure): 6 models × 7 scenarios × k=5 = 210 runs; labels carry measured pass rate and median cost per plan",
+  "generated_at": "2026-09-18T16:27:04.349226-05:00",
+  "source": "2026-09-18 measurement sweep (dog_walker.measure): 6 models x 8 scenarios x k=5 = 240 runs, $1.96; labels carry measured pass rate, median cost per plan and median seconds. Runs not attributable to the model (provider/harness/host) are excluded from the rate: 2 of 240, both gpt-oss-120b provider faults.",
   "criteria": {
     "prompt_cap_per_m": 0.3,
     "completion_cap_per_m": 1.2,
@@ -13,27 +13,27 @@
   "models": [
     {
       "id": "inclusionai/ling-3.0-flash",
-      "label": "Ling 3.0 Flash — 100%, $0.0004/plan (default)"
+      "label": "Ling 3.0 Flash — 100%, $0.0004/plan, 15s (default)"
     },
     {
       "id": "anthropic/claude-haiku-4.5",
-      "label": "Claude Haiku 4.5 — 100%, frontier contrast"
+      "label": "Claude Haiku 4.5 — 100%, $0.0331/plan, 22s (frontier contrast)"
     },
     {
       "id": "qwen/qwen3.7-flash",
-      "label": "Qwen3.7 Flash — 94%, $0.0008/plan"
+      "label": "Qwen3.7 Flash — 100%, $0.0008/plan, 30s"
     },
     {
       "id": "openai/gpt-oss-120b",
-      "label": "gpt-oss-120b — 91%, $0.0020/plan"
+      "label": "gpt-oss-120b — 95%, $0.0012/plan, 128s (slowest)"
     },
     {
       "id": "qwen/qwen3-8b",
-      "label": "Qwen3 8B — 77%, $0.0055/plan (prior default)"
+      "label": "Qwen3 8B — 85%, $0.0065/plan, 75s (prior default)"
     },
     {
       "id": "inception/mercury-2.5",
-      "label": "Mercury 2.5 — 71%, provider-flaky"
+      "label": "Mercury 2.5 — 100%, $0.0014/plan, 11s (fastest)"
     }
   ],
   "rejected": [

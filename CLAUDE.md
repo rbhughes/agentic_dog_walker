@@ -33,6 +33,24 @@ validation) is plain code; the model translates intent and narrates results.
     rate-spaced 1.1 s with identifying User-Agent per usage policy, 12-address
     cap. Failures return per-address error slots, never raise.
   - `optimize_route` — OpenRouteService walking-distance matrix + OR-Tools
+    **2026-09-17 window fix**: a `morning` walk must FINISH by noon, not
+    merely start by noon. The old arrival-based bound scheduled 11:35-12:35
+    "morning" walks and returned feasible for morning-overbook (a scenario
+    whose whole point is infeasibility), so every model that faithfully
+    relayed the tool was graded `fabricated_feasible` — 19 runs in the
+    2026-09-17 sweep, the largest failure bucket in it.
+    **Routing quota**: ORS free quota is per day and a sweep replays the same
+    dozen rosters hundreds of times (318 route calls = ~636 ORS requests on
+    2026-09-17, which exhausted it: 76 of 81 routes in failure transcripts
+    silently fell back to straight-line distances). So real-street answers are
+    cached on disk (`data/route_cache.json`, gitignored, keyed by coordinates
+    to 5 decimals; fallbacks are never cached), `toolbox.WANT_GEOMETRY=False`
+    skips the map-geometry request for anything that draws no map (the
+    harness sets it), and every fallback is counted in
+    `toolbox.ROUTE_FALLBACKS`. measure.py probes routing once at sweep start
+    and REFUSES to run when it is degraded (`--allow-degraded-routes` to
+    override); any run whose route fell back is `blame=harness` and ungraded,
+    passes included.
     Traveling-Salesman solve (round trip from stop 0) + street geometry as
     GeoJSON for the browser. Haversine fallback with an honest
     `uses_real_streets` flag. Returns a timeline with each dog's walk
@@ -60,9 +78,50 @@ validation) is plain code; the model translates intent and narrates results.
   - `chat()` speaks ONE dialect: OpenRouter's OpenAI-compatible API (the
     Ollama dialect was retired 2026-09-11 with fossil's inference role;
     if local inference returns, Ollama serves this same dialect at
-    /v1/chat/completions). Retries transient failures (4 attempts,
-    backoff; 429/5xx/network retried; a 400 gets one retry without the
-    reasoning block for models that reject it; other 4xx raise).
+    /v1/chat/completions). Retries transient failures with EXPONENTIAL
+    backoff bounded by a per-run DEADLINE: CHAT_ATTEMPTS=6 at
+    CHAT_TIMEOUT_S=120s, backoff 4→8→16→32→60s (CHAT_BACKOFF_BASE_S=4,
+    _MAX_S=60), honoring OpenRouter's `Retry-After` header on 429s (their
+    documented guidance). run_events passes an absolute deadline
+    (AGENT_RUN_BUDGET_S=300) into every chat() call; no read or sleep runs
+    past it, so a slow-but-working model gets its full time while a
+    chronically-throttled one still can't overrun the budget. CAVEAT
+    (verified 2026-09-16): the timeout bounds each socket READ, and
+    OpenRouter sends whitespace keep-alive chunks before the JSON body, so
+    one slow call is never cut off and can run far past both budgets (the
+    deadline is only checked between calls). Latency diagnostics: chat()
+    times every HTTP attempt (status, headers_s, total_s, backoff_s,
+    generation id); run_events adds tool timings and returns them as
+    `timing` on the terminal event; setting agent.CALL_LOG writes a live
+    JSONL line before and after each attempt and tool call. The harness
+    (measure.py) buckets each run's wall-clock (model, malformed, 429
+    throttle, 400 rejected, provider failure, tools, other), pulls
+    OpenRouter's free /generation stats after the clock stops (time to
+    first token, generation time, reasoning tokens, hidden provider
+    failovers), appends each run to measurements/runs-<ts>.jsonl as it
+    finishes, and prints a timing report (`--timing-report`, runs >120 s
+    flagged). Attribution fixes after the 2026-09-16 overnight sweep:
+    (1) the Mac idle-slept once Claude released its sleep assertion, so
+    18.8 h of wall time held 5.5 h of work and sleep-interrupted runs hit
+    backend_error at 7x the awake rate; measure.py now runs `caffeinate -i -s
+    -w <pid>` and records host_sleep_s (wall minus monotonic) per run and
+    per attempt. (2) ACT max_tokens was 700; 16/18 malformed_output were
+    grand-tour cut-offs. Caps are now 4000 (PLAN_MAX_TOKENS/ACT_MAX_TOKENS),
+    truncation is detected from finish_reason OR native_finish_reason
+    (OpenRouter normalized cut-offs to "tool_calls"), is not retried, and is
+    its own outcome. (3) IncompleteRead (dropped connection) escaped the
+    retry loop; now retried. (4) Refused requests keep the HTTP error body.
+    (5) Every run gets `blame` (none/model/provider/harness/host, see
+    measure.blame); pass rates grade only none+model runs, and
+    `provider_excluded` now means "not the model's fault". This
+    separates the two knobs the earlier designs conflated: per-CALL timeout
+    (bounds one hang) vs whole-RUN budget (gives slow models room). 429/
+    5xx/network/unusable-200 retried; a 400 gets one retry without the
+    reasoning block; other 4xx raise. Every reply carries `_meta`
+    (latency_s, attempts, throttles=429s ridden out, upstream provider);
+    run_events accumulates `retries`+`throttles`+`providers` onto the
+    terminal event so the harness separates provider throttling/flakiness
+    from model competence.
 - **MCP facade** (`src/dog_walker/mcp_server.py`) — ~12 lines exposing the
   same REGISTRY over the Model Context Protocol (stdio) so external hosts can
   plug the tools in. The agent itself dispatches in-process — protocol at the
@@ -161,7 +220,7 @@ the plumbing and this documentation stay intact for model experiments.
 ## 4. Environment & commands
 
 - uv project, Python 3.12. `uv sync`.
-- Tests: `uv run --with pytest python -m pytest` — 102 offline tests, no
+- Tests: `uv run --with pytest python -m pytest` — 121 offline tests, no
   network, no model (scripted-backend fixtures prove the event loop).
   (Bare `uv run pytest` can fail to spawn yet exit 0 — never trust it in a
   `&&` chain.)
@@ -176,6 +235,39 @@ the plumbing and this documentation stay intact for model experiments.
 
 ## 5. Roadmap / open questions
 
+- **Harder constraints for model differentiation: DONE 2026-09-15.**
+  Motivated by the k=2 sweep finding that a clean harness makes the six
+  models near-indistinguishable (all ~100%) -- to see capability drift you
+  need a longer horizon (METR 2503.14499) and reliability scoring (tau-bench
+  pass^k, 2406.12045). Added three constraints, each the usual attribute ->
+  effect -> oracle:
+  - **Daylight.** Workday is now 7am-7pm (WORKDAY_START/END_MIN; morning
+    starts 7:00). New tool `check_daylight` (Open-Meteo daily sunset).
+    optimize_route takes `sunset_min` and HARD-caps every walk to end by
+    min(7pm, sunset) -> feasible:false on short winter days. `audit_daylight`
+    forces the model to call check_daylight + pass sunset when any dog has an
+    afternoon window ('any' dogs get scheduled early, so they can't run late).
+  - **Difficulty (0-5).** Each point = 5 min; ~50% of walks the dog acts up
+    and runs difficulty*5 longer, ROLLED in optimize_route (like weather:
+    realized, not planned; `random.random()`), threaded into the solver
+    service AND the timeline AND the daylight bound. Can push a later walk
+    past a window/sunset -> infeasible. Stochastic, so harness runs aren't
+    bit-reproducible.
+  - **skip_rain.** check_weather returns `raining` (>= RAIN_TRIGGER_MM 0.2);
+    a skip_rain dog in rain must get a MINIMAL_VISIT_MIN (10) visit not a
+    walk -- `audit_rain` enforces it from the weather RESULT correlated to
+    its call by tool_call_id. Relaxes the schedule (shorter), so it's a
+    weather->plan branch, not an infeasibility driver.
+  - MAX_STOPS 10->13, service MAX_PETS 6->12. Site form: difficulty slider
+    (default 0, self-explaining label) + skips-rain checkbox. build_request
+    + Pet model carry both. New `grand-tour` scenario (6 dogs, every
+    constraint) with expected_feasible=None -> harness grades on
+    RELAY-FIDELITY (a validated final IS the pass, since the auditors already
+    forced correctness). Live: grand-tour is a 16+ tool-call chain ling
+    completes ~2 of 3 -- the run-to-run variance we were after.
+  - STILL OPEN: pass^k metric in the report; a rain/difficulty live check
+    (need a wet day / a bad roll); a full high-k re-sweep once the task
+    actually differentiates.
 - **Measurement harness: DONE 2026-09-14 — the actual deliverable.**
   `src/dog_walker/measure.py` + `scenarios.py`. Evolves the single-run
   gate (qualify.py) into a real measurement: every model × the scenario
@@ -196,8 +288,34 @@ the plumbing and this documentation stay intact for model experiments.
   fields to `null` and livelocked 14 rounds on `None is not of type
   number`; fixed with `without_nulls()` in the referee (null == unset,
   matches how tools already read inputs) — single-easy 0/2 → 2/2, ~4×
-  cheaper. Still open: a full sweep (6 models × 7 scenarios × k=5 = 210
-  paid runs) to publish; re-qualify models.json against the 4-tool task.
+  cheaper. **Provider-vs-competence split (2026-09-16):** a k=5 sweep was
+  contaminated by one provider serving qwen3.7 hung ($0-billed) calls; the
+  old 4×180s retry amplified each stall to 400-700s. Hardened: chat()
+  timeout 180→60s, attempts 4→3, RUN_DEADLINE 240→90s; every reply now
+  carries `_meta` and the harness records per-run `retries`/`providers`.
+  `PROVIDER_FAULTS={timeout,backend_error}` are EXCLUDED from the pass-rate
+  denominator and cost/latency medians (reported separately as
+  `provider_excluded`); `malformed_output` stays IN (that's the model).
+  Flakiness (`total_retries`/`flaky_runs`/`total_throttles`) counted across
+  all runs, passes included. The sweep loop now INTERLEAVES models
+  round-robin (pass→scenario→model) instead of model-at-a-time, so a bad
+  provider window can't be misread as one model's weakness.
+  **CORRECTION (2026-09-16, first k=5 sweep):** the "provider fault"
+  label was over-broad. Of 63 excluded runs, ~23 were HTTP 429 throttling
+  (real, external, concentrated on qwen3.7) but ~37 were my own 90s
+  RUN_DEADLINE guillotining slow-but-WORKING gpt-oss/qwen3-8b runs (their
+  successes ran to ~88s) -- a harness artifact, the same "confound model
+  speed with provider health" error inverted. Fix: RUN_DEADLINE 90→330s
+  (above AGENT_RUN_BUDGET 300), chat() exponential backoff + Retry-After
+  (see §2). That first sweep's numbers are NOT publishable: qwen3.7 (n=16),
+  qwen3-8b (n=19), gpt-oss (n=23) had denominators thinned to
+  incomparability. What survived the confound (within-model, robust):
+  grand-tour breaks everyone (malformed_output on the long chain);
+  morning-overbook (infeasible) draws fabricated_feasible across models,
+  haiku worst at 0/5; corrections concentrate at submit_plan (29-60%),
+  ~0% on lookups. Still open: the fault-tolerant re-sweep to publish;
+  repeat at 2-3 times of day to characterize flakiness; re-qualify
+  models.json.
 - **Hosting: DONE 2026-09-11 — fossil + Tailscale Funnel.** The service
   (not the model) runs on fossil as `dogwalker.service`, public at
   **https://fossil.taild72aca.ts.net** (Funnel → 127.0.0.1:8010).

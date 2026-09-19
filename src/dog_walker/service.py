@@ -42,7 +42,7 @@ from dog_walker.toolbox import WALK_DURATIONS
 # limits -- the numbers ARE the policy; change them consciously
 # ---------------------------------------------------------------------
 
-MAX_PETS = 6
+MAX_PETS = 12
 MAX_FIELD_CHARS = 120
 RATE_LIMIT_RUNS = 6          # per IP...
 RATE_LIMIT_WINDOW_S = 3600   # ...per hour
@@ -104,6 +104,8 @@ class Pet(BaseModel):
     needs_meds: bool = False
     walk_window: Literal["any", "morning", "afternoon"] = "any"
     max_relief_m: int | None = Field(default=None, ge=1, le=2000)
+    difficulty: int = Field(default=0, ge=0, le=5)
+    skip_rain: bool = False
 
     @model_validator(mode="after")
     def band_is_sane(self):

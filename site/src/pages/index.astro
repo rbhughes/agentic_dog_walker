@@ -16,7 +16,7 @@ import data from "../data/measurement.json";
     <link rel="canonical" href="https://walker.purr.io/" />
     <meta
       name="description"
-      content="A 210-run measurement of six small language models on a real tool-using dog-walking agent — pass rates with confidence intervals, real cost per plan, and how they fail."
+      content="A 240-run measurement of six cheap language models on a real tool-using agent. Four of six passed every run — because the hard decisions sit in code, not in the model. Pass rates, real cost per plan, and how they fail."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -33,20 +33,30 @@ import data from "../data/measurement.json";
       <span class="brand">Agentic Dog Walker</span>
       <a href="/live">Run it live</a>
       <a href="https://github.com/rbhughes/agentic_dog_walker">GitHub</a>
-      <span class="pill">measurement · 210 runs</span>
+      <span class="pill">measurement · 240 runs</span>
     </nav>
 
     <header class="hero">
-      <p class="eyebrow">Model evaluation · 210 live runs</p>
-      <h1>Which model walks the dogs?</h1>
+      <p class="eyebrow">Model evaluation · 240 live runs</p>
+      <h1>Which model walks the dogs? Almost any of them — if you box it in.</h1>
       <p class="lede">
-        This is a measurement, and <strong>the measurement is the point</strong>
-        — not the dog walking, and not any particular model. Of the cheap
-        language models that can use tools and reason, which are actually good
-        enough to run a real agent? The task below is only a yardstick, chosen
-        because it has a <strong>deterministic finish line</strong>: a plan
-        either passes the agent's own checks or it doesn't, so a score isn't a
-        matter of opinion.
+        Six cheap language models planned the same dog walks, forty runs each.
+        <strong>Four passed every single run</strong>, and one of those costs
+        <strong>93× less</strong> than the frontier model sitting beside it in
+        the table. The reason isn't that small models quietly got smarter. It's
+        that in this agent <strong>the decisions that matter never reach the
+        model</strong>: code solves the route, code rules on the weather, code
+        decides whether a schedule is possible at all, and a referee throws out
+        any tool call that doesn't fit its schema. The model translates the
+        request and relays verified answers.
+      </p>
+      <p class="lede-2">
+        That is the finding worth carrying away from here. <strong>Build the
+        scaffolding first, then shop for the model</strong> — and once the
+        scaffolding holds, price is what's left to choose on. The dog walking is
+        only a yardstick, picked because it has a <strong>deterministic finish
+        line</strong>: a plan either passes the agent's own checks or it doesn't,
+        so a score isn't a matter of opinion.
       </p>
       <p class="lede-2">
         The field is picked by rule, not taste. From OpenRouter's full catalog I
@@ -114,27 +124,32 @@ import data from "../data/measurement.json";
           structured <span class="mono">submit_plan</span> whose validated
           arguments <em>are</em> the answer, never parsed from prose. Those checks
           are what make a "pass" mean something — the deterministic finish line a
-          model can be measured against. <a href="/live">Watch it run live →</a>
+          model can be measured against. They are also why the cheap models hold
+          up: the box is doing work the model never has to.
+          <a href="/live">Watch it run live →</a>
         </p>
       </section>
 
       <section id="verdict">
         <p class="eyebrow">The verdict</p>
-        <h2>A $0.0004 model ties the frontier — and the model that looked worst was mostly our own bug.</h2>
+        <h2>With the hard calls in code, four of six models are indistinguishable — and 93× apart in price.</h2>
         <p class="kicker">
-          Two models finished all 35 runs, and the cheaper one — <b>66× cheaper</b> —
-          is the new default. The bigger surprise came from the model that placed
-          last in the first sweep: most of its failures weren't the model at all,
-          but a bug in this harness. Fixing it moved the old default from 77% to 97%.
+          Once the route solving, the safety verdicts and the feasibility ruling
+          live in deterministic code, reliability stops separating small models:
+          <b>four of six</b> passed every run. Price separates them completely.
+          The same finished walk plan costs <b>$0.0004</b> from the cheapest model
+          and <b>$0.033</b> from the frontier baseline, and that one model spent
+          <b>75%</b> of this sweep's entire bill. Per thousand plans:
+          <b>36 cents</b> against <b>$33</b>.
         </p>
         <div class="verdict">
           <div class="vcard win">
             <div class="tag">Best value · new default</div>
             <div class="model">inclusionai/ling-3.0-flash</div>
             <div class="figs">
-              <div class="fig"><div class="n">100%</div><div class="u">35 / 35 passed</div></div>
+              <div class="fig"><div class="n">100%</div><div class="u">40 / 40 passed</div></div>
               <div class="fig"><div class="n">$0.0004</div><div class="u">median / plan</div></div>
-              <div class="fig"><div class="n">10s</div><div class="u">median</div></div>
+              <div class="fig"><div class="n">15s</div><div class="u">median</div></div>
             </div>
             <p>Perfect, fastest of the cheap tier, and the least expensive model
               in the sweep. Now the site default.</p>
@@ -143,26 +158,25 @@ import data from "../data/measurement.json";
             <div class="tag">Frontier baseline</div>
             <div class="model">anthropic/claude-haiku-4.5</div>
             <div class="figs">
-              <div class="fig"><div class="n">100%</div><div class="u">35 / 35 passed</div></div>
-              <div class="fig"><div class="n">$0.0265</div><div class="u">median / plan</div></div>
-              <div class="fig"><div class="n">15s</div><div class="u">median</div></div>
+              <div class="fig"><div class="n">100%</div><div class="u">40 / 40 passed</div></div>
+              <div class="fig"><div class="n">$0.0331</div><div class="u">median / plan</div></div>
+              <div class="fig"><div class="n">22s</div><div class="u">median</div></div>
             </div>
-            <p>Also flawless — and it alone burned <b>70%</b> of the whole
+            <p>Also flawless — and it alone burned <b>75%</b> of the whole
               sweep's cost. The reliability is free; the certainty is not.</p>
           </div>
           <div class="vcard swap">
-            <div class="tag">The harness's best catch</div>
-            <div class="model">qwen/qwen3-8b</div>
+            <div class="tag">Fastest</div>
+            <div class="model">inception/mercury-2.5</div>
             <div class="figs">
-              <div class="fig"><div class="n">97%</div><div class="u">was 77%</div></div>
-              <div class="fig"><div class="n">$0.0074</div><div class="u">median / plan</div></div>
-              <div class="fig"><div class="n">54s</div><div class="u">median</div></div>
+              <div class="fig"><div class="n">100%</div><div class="u">40 / 40 passed</div></div>
+              <div class="fig"><div class="n">$0.0014</div><div class="u">median / plan</div></div>
+              <div class="fig"><div class="n">11s</div><div class="u">median</div></div>
             </div>
-            <p>It placed last in the first sweep. The harness traced the losses to
-              our own referee rejecting <span class="mono">max_relief_m: 0</span> — the
-              model's shorthand for "no hill limit." We fixed that; the re-run scores
-              97%, one truncated response short of perfect. The bug was ours, not the
-              model's. (Still not the default — ling is 18× cheaper.)</p>
+            <p>Perfect, and it answers faster than anything else in the field —
+              a median plan in 11 seconds, at nearly 1,400 output tokens per second.
+              Speed is its own kind of cheap: the same plan, while a slower model
+              is still thinking. (Still not the default — ling is 3.9× cheaper.)</p>
           </div>
         </div>
       </section>
@@ -209,13 +223,14 @@ import data from "../data/measurement.json";
         <p class="eyebrow">Where they break</p>
         <h2>One scenario carries most of the difficulty</h2>
         <p class="col">
-          Averages hide the shape of failure. Out of five runs per cell, the strong
-          models are near-perfect except on one column: <strong>full-house</strong> —
-          a single dog wearing every attribute at once (comfort band, meds, a morning
-          window, prep time, and hills). <span class="mono">mercury-2.5</span> is the
-          exception, thin across the board. And the first sweep's headline — the old
-          default going <strong>0 for 5</strong> on Lakeview — is gone: that was the
-          referee bug, now fixed, which is why qwen3-8b's row is almost solid green.
+          Averages hide the shape of failure. Out of five runs per cell, four models
+          are solid green everywhere. What difficulty remains sits in one column:
+          <strong>grand-tour</strong> — six dogs carrying every constraint at once,
+          a comfort band, meds, hills, walk windows and a sunset cutoff, in a single
+          outing. Both slower models lose most of their runs there, and no other
+          column costs anyone more than one run — except
+          <span class="mono">single-easy</span>, where qwen3-8b twice talked itself
+          out of walking one dog.
         </p>
         <div class="heat-scroll">
           <table class="heat" id="heat"></table>
@@ -230,14 +245,14 @@ import data from "../data/measurement.json";
 
       <section id="taxonomy">
         <p class="eyebrow">How they fail</p>
-        <h2>Not all failures are the model's fault</h2>
+        <h2>Ten runs out of 240, and they are not the same kind of thing</h2>
         <p class="col">
-          Eighteen runs didn't pass, and lumping them into one number lies —
-          they aren't the same kind of thing. The largest category in the first
-          sweep, <strong>the referee being too strict</strong>, is gone entirely;
-          fixing it is what recovered qwen3-8b. What's left is mostly
-          infrastructure — a flaky provider, and long tool-call JSON that got
-          truncated — plus a couple of genuine model mistakes.
+          Lumping failures into one number lies. Two were the provider, not the
+          model: a backend that refused six attempts, and one call that never
+          returned. The other eight are the models' own — five
+          <strong>livelocks</strong>, where a model never satisfied the deterministic
+          auditors before its rounds ran out, and three <strong>refusals</strong>,
+          where a model declared a perfectly walkable roster impossible.
         </p>
         <div class="tax" id="tax"></div>
         <div class="legend">
@@ -246,33 +261,94 @@ import data from "../data/measurement.json";
         </div>
 
         <div class="callout">
-          <h3>The one that matters: fabricated feasibility</h3>
-          <p>Two runs, both from <span class="mono">mercury-2.5</span>, declared the
-            <span class="mono">morning-overbook</span> roster <b>solvable</b>. It
-            isn't: four hour-long walks that must all start before noon cannot be
-            fit into one outing. The model called the route tool but <b>dropped
-            the walk-window constraint</b>, so the deterministic tool saw an easy
-            route and agreed.</p>
+          <h3>The two slower models fail in different ways</h3>
+          <p><b>qwen3-8b</b> is the only model whose accuracy is genuinely behind,
+            and its losses are self-inflicted rather than provider trouble. Three
+            refusals came from arguments it invented — a midnight sunset, morning
+            windows on stops that never asked for one — and three more from
+            livelocks on the heaviest scenario. It also thinks the hardest of any
+            model here, a median of 2,041 reasoning tokens per run, and costs
+            <b>18×</b> the default.</p>
+          <p><b>gpt-oss-120b</b> is accurate and slow. Both of its graded losses
+            were livelocks on that same heaviest scenario; everything else it
+            passed. The cost is time: ~25 output tokens a second and a median plan
+            of <b>128 seconds</b>, against 15 for the default. It was also the only
+            model to break the tool schemas outright, calling the weather tool 22
+            times without a latitude — caught by the referee, bounced back, and
+            corrected inside the run.</p>
+        </div>
+
+        <div class="callout">
+          <h3>The one that matters: a model that talks itself out of a walk</h3>
+          <p>Three runs, all from <span class="mono">qwen3-8b</span>, declared an
+            easy roster impossible — twice on <span class="mono">single-easy</span>,
+            one dog and a thirty-minute walk. The planning wasn't wrong; the
+            <b>arguments</b> were. It told the route tool that sunset fell at
+            <span class="mono">00:00</span> and stamped a morning window on stops
+            that never asked for one. Given midnight as the cutoff, the
+            deterministic solver correctly answered that nothing fits before dark,
+            and the model faithfully relayed its own mistake.</p>
           <p>The in-loop auditor is blind here — it can only check the constraints
-            the model actually passes. The measurement caught it anyway, because
-            the harness knows the right answer independently. <b>That is the whole
-            thesis:</b> you can measure an agent honestly only when the task has a
-            checkable finish line the model can't talk its way past.</p>
+            the model actually passes — a tool given nonsense answers honestly.
+            The measurement caught it anyway, because the grader knows each
+            scenario's right answer independently. <b>That is the whole thesis:</b>
+            you can measure an agent honestly only when the task has a checkable
+            finish line the model can't talk its way past.</p>
         </div>
 
         <div class="callout warn">
           <h3>Reading the caveats honestly</h3>
-          <p><b>mercury-2.5's</b> 71% is mostly an availability story: 8 of its
-            losses were the provider returning no completion at all, not bad
-            planning. <b>gpt-oss-120b's</b> dip to 86% is the same shape — a burst
-            of malformed and truncated tool-call JSON on the heavier scenarios,
-            not its planning; the <span class="mono">float(None)</span> bug that
-            cost it two runs in the first sweep is fixed and gone. And the biggest
-            correction is <b>qwen3-8b</b>: its first-sweep 77% was almost entirely
-            our referee rejecting <span class="mono">max_relief_m: 0</span>. That's
-            fixed, and the re-run confirms it — 34/35, a twenty-point jump. The
-            lesson points back at the harness: a grader this strict catches your
-            own bugs before it catches the model's.</p>
+          <p><b>Forty runs cannot prove 100%.</b> Every perfect score here carries a
+            95% interval reaching down to 91%: four models are indistinguishable at
+            this sample size, which is the finding, not a tie to be broken.
+            <b>gpt-oss-120b</b> is accurate but slow — 95%, and a median plan of
+            <b>128 seconds</b> against 15 for the default, because it emits only
+            ~25 output tokens a second and spends over a thousand of them thinking
+            per run. <b>qwen3-8b</b> is the only model whose accuracy is genuinely
+            behind, and it is also <b>18× the price</b> of the default. Cheap is not
+            the same as small: the cheapest model here is also among the most
+            reliable.</p>
+        </div>
+      </section>
+
+      <section id="fairness">
+        <p class="eyebrow">How the test got here</p>
+        <h2>Harder scenarios, and more patience for slow models</h2>
+        <p class="col">
+          This sweep is the latest of several, and the test moved in two
+          directions at once. It got <strong>harder</strong>: the scenario library
+          grew to eight, topped by <span class="mono">grand-tour</span> — six dogs
+          carrying eight constraint types in one outing, where nearly every
+          remaining failure now lives. And it got <strong>more patient</strong>,
+          because an impatient harness measures the network instead of the model.
+        </p>
+        <div class="method">
+          <div>
+            <h3><span class="step">01</span> Time to think</h3>
+            <p>An earlier sweep cut runs off at 90 seconds and recorded slow-but-
+              working models as timeouts. A run now gets a 300-second budget with a
+              120-second ceiling per model call, which is why a 128-second median
+              shows up as a cost rather than a failure.</p>
+          </div>
+          <div>
+            <h3><span class="step">02</span> Room to answer</h3>
+            <p>A reply may run to 4,000 output tokens. A six-dog plan legitimately
+              needs well over a thousand, and a ceiling below that clips the tool
+              call mid-JSON. Output tokens bill as produced, so headroom is free.</p>
+          </div>
+          <div>
+            <h3><span class="step">03</span> Patience with throttling</h3>
+            <p>Rate-limited calls are retried up to six times with exponential
+              backoff, honoring the provider's own <span class="mono">Retry-After</span>.
+              A busy provider costs seconds, not a failed run.</p>
+          </div>
+          <div>
+            <h3><span class="step">04</span> Quotas kept out of it</h3>
+            <p>Street-distance lookups are cached between runs, so a sweep asks the
+              map service about a dozen questions instead of hundreds — and a run
+              is thrown out entirely if its route ever falls back to straight-line
+              distances.</p>
+          </div>
         </div>
       </section>
 
@@ -283,9 +359,10 @@ import data from "../data/measurement.json";
           The task is dog-walk route planning: geocode addresses, solve the
           visiting order over real streets, check weather for each dog's actual
           walk window, respect terrain, medication, and comfort constraints, and
-          finish with a structured plan. The numbers here combine the 2026-09-14
-          sweep with a 2026-09-15 re-run of the two models whose failures the
-          harness traced to bugs since fixed. <a href="/live">Try it live →</a>
+          finish with a structured plan. The numbers here are a single
+          2026-09-18 sweep of 240 live runs. Runs whose failure belongs to the
+          provider rather than the model are reported separately and left out of
+          the pass rate. <a href="/live">Try it live →</a>
         </p>
         <div class="method">
           <div>
@@ -293,7 +370,7 @@ import data from "../data/measurement.json";
             <p>A run passes iff it reaches a schema-validated
               <span class="mono">submit_plan</span> whose
               <span class="mono">feasible</span> flag matches the scenario's known
-              answer. No model judges another. All seven scenarios' answers were
+              answer. No model judges another. All eight scenarios' answers were
               checked against the solver before the sweep.</p>
           </div>
           <div>
@@ -304,7 +381,7 @@ import data from "../data/measurement.json";
           </div>
           <div>
             <h3><span class="step">03</span> Five runs, real intervals</h3>
-            <p>Each of the 42 model×scenario cells runs five times. Pass rates carry
+            <p>Each of the 48 model×scenario cells runs five times. Pass rates carry
               a Wilson score interval, so "5/5" and "50/50" are never mistaken for
               the same confidence.</p>
           </div>
@@ -436,11 +513,11 @@ import data from "../data/measurement.json";
       (function tax() {
         // outcome -> (bar colour class, plain-language cause)
         const KIND = {
-          backend_error:       ["infra",  "provider / our-bug"],
+          backend_error:       ["infra",  "provider"],
           schema_thrash:       ["strict", "referee too strict"],
           fabricated_feasible: ["comp",   "model reasoning"],
           false_infeasible:    ["comp",   "model reasoning"],
-          timeout:             ["comp",   "model reasoning"],
+          timeout:             ["infra",  "provider"],
           veto_livelock:       ["comp",   "model reasoning"],
           prose_stall:         ["comp",   "model reasoning"],
           no_submit:           ["comp",   "model reasoning"],

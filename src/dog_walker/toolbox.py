@@ -17,6 +17,10 @@ Design rules (earned in Phase 1):
 
 from __future__ import annotations
 
+import json
+import os
+import random
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -254,9 +258,13 @@ def check_weather(
     if end_hour <= start_hour:
         end_hour = min(start_hour + 1, 24)
     hours = fetch_forecast(lat, lon, date)
-    return assess_walk_safety(
+    result = assess_walk_safety(
         hours, start_hour, end_hour, comfort_min_f, comfort_max_f
     )
+    # an explicit rain flag for skip_rain dogs (they take a minimal visit
+    # instead of a walk when it's wet)
+    result["raining"] = result["window"]["max_precip_mm"] >= RAIN_TRIGGER_MM
+    return result
 
 
 CHECK_WEATHER_SCHEMA = {
@@ -490,6 +498,76 @@ CHECK_TERRAIN_SCHEMA = {
     },
 }
 
+
+# ---------------------------------------------------------------------
+# daylight: dogs aren't walked after dark, so a walk must finish before
+# sunset. Sunset in Chicago swings from ~16:30 (December) to ~20:30
+# (June), so the same afternoon roster can be feasible in summer and
+# impossible in winter -- a real, date-and-latitude-driven constraint.
+# ---------------------------------------------------------------------
+
+
+def fetch_sunset_min(lat: float, lon: float, date: str) -> int | None:
+    """Sunset for a place and date, as minutes since local midnight
+    (Open-Meteo daily API, timezone auto). None if unavailable."""
+    resp = requests.get(
+        "https://api.open-meteo.com/v1/forecast",
+        params={
+            "latitude": lat,
+            "longitude": lon,
+            "start_date": date,
+            "end_date": date,
+            "daily": "sunset",
+            "timezone": "auto",
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    stamps = resp.json().get("daily", {}).get("sunset") or []
+    if not stamps:
+        return None
+    # "2026-12-15T16:29" -> 16*60 + 29
+    hh, mm = stamps[0].split("T")[1].split(":")[:2]
+    return int(hh) * 60 + int(mm)
+
+
+def check_daylight(lat: float, lon: float, date: str) -> dict[str, Any]:
+    """When darkness falls at a location on a date. optimize_route takes
+    the returned sunset_min so no dog is scheduled to walk after dark."""
+    sunset_min = fetch_sunset_min(lat, lon, date)
+    if sunset_min is None:
+        return {"error": "sunset unavailable for that place/date"}
+    return {
+        "sunset": f"{sunset_min // 60:02d}:{sunset_min % 60:02d}",
+        "sunset_min": sunset_min,
+        "workday_end": f"{WORKDAY_END_MIN // 60:02d}:00",
+    }
+
+
+CHECK_DAYLIGHT_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "check_daylight",
+        "description": (
+            "Look up sunset for the walking area and date. No dog is "
+            "walked after dark, so pass the returned sunset_min to "
+            "optimize_route -- every walk must finish before sunset (or "
+            "7pm, whichever is earlier). Call once for the roster's area "
+            "when any dog may be walked in the afternoon."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lat": {"type": "number", "description": "latitude"},
+                "lon": {"type": "number", "description": "longitude"},
+                "date": {"type": "string", "description": "ISO YYYY-MM-DD"},
+            },
+            "required": ["lat", "lon", "date"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 # ---------------------------------------------------------------------
 # registry: name -> (callable, schema). Agent + MCP facade both read
 # ---------------------------------------------------------------------
@@ -500,7 +578,7 @@ ORS_MATRIX_URL = "https://api.openrouteservice.org/v2/matrix/foot-walking"
 ORS_DIRECTIONS_URL = (
     "https://api.openrouteservice.org/v2/directions/foot-walking/geojson"
 )
-MAX_STOPS = 10  # abuse cap for the public API, and ORS-polite
+MAX_STOPS = 13  # 12 dogs + the depot; a 7am-7pm day can hold a long chain
 WALK_SPEED_M_PER_MIN = 83.33  # 5 km/h
 
 
@@ -529,6 +607,59 @@ def _haversine_m(a: tuple[float, float], b: tuple[float, float]) -> float:
     return 6_371_000 * 2 * math.asin(math.sqrt(h))
 
 
+# ---------------------------------------------------------------------
+# routing cache + degradation counter
+#
+# ORS's free quota is per day, and a measurement sweep replays the same
+# handful of fixed rosters hundreds of times: the 2026-09-17 sweep made 318
+# optimize_route calls (~636 ORS requests) over about a dozen distinct
+# coordinate sets, exhausted the quota, and silently fell back to
+# straight-line distances for 76 of 81 routes in its failure transcripts.
+# So: cache real-street answers on disk keyed by the exact coordinates, skip
+# the map geometry when nobody is drawing a map, and COUNT every fallback so
+# a degraded route can never pass unnoticed.
+# ---------------------------------------------------------------------
+
+ROUTE_CACHE_PATH = Path(
+    os.environ.get("DOG_WALKER_ROUTE_CACHE",
+                   Path(__file__).resolve().parents[2] / "data" / "route_cache.json"))
+WANT_GEOMETRY = True     # the harness turns this off; the service leaves it on
+_route_cache: dict[str, Any] | None = None
+# every fallback to straight-line distances, by reason; read by the harness
+ROUTE_FALLBACKS: dict[str, int] = {}
+
+
+def _cache() -> dict[str, Any]:
+    global _route_cache
+    if _route_cache is None:
+        try:
+            _route_cache = json.loads(ROUTE_CACHE_PATH.read_text())
+        except (OSError, ValueError):
+            _route_cache = {}
+    return _route_cache
+
+
+def _cache_key(kind: str, coords: list[tuple[float, float]]) -> str:
+    """Coordinates to 5 decimals (~1 m) in visiting order."""
+    return kind + ":foot-walking:" + ";".join(f"{lat:.5f},{lon:.5f}" for lat, lon in coords)
+
+
+def _cache_put(key: str, value: Any) -> None:
+    c = _cache()
+    c[key] = value
+    try:
+        ROUTE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = ROUTE_CACHE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(c))
+        tmp.replace(ROUTE_CACHE_PATH)    # atomic: never a half-written cache
+    except OSError:
+        pass                              # cache is an optimization, not state
+
+
+def _note_fallback(reason: str) -> None:
+    ROUTE_FALLBACKS[reason] = ROUTE_FALLBACKS.get(reason, 0) + 1
+
+
 def _walking_matrix(coords: list[tuple[float, float]]) -> tuple[list[list[int]], bool]:
     """All-pairs walking distances in metres.
 
@@ -536,7 +667,14 @@ def _walking_matrix(coords: list[tuple[float, float]]) -> tuple[list[list[int]],
     straight-line distances. Returns (matrix, uses_real_streets) -- the
     flag travels all the way to the user, never silently degraded.
     """
+    ck = _cache_key("matrix", coords)
+    hit = _cache().get(ck)
+    if hit is not None:
+        return [list(map(int, row)) for row in hit], True   # only real answers are cached
+
     key = _ors_key()
+    if not key:
+        _note_fallback("no_api_key")
     if key:
         try:
             resp = requests.post(
@@ -552,9 +690,19 @@ def _walking_matrix(coords: list[tuple[float, float]]) -> tuple[list[list[int]],
             )
             resp.raise_for_status()
             rows = resp.json()["distances"]
-            return [[int(d) for d in row] for row in rows], True
-        except (requests.RequestException, KeyError):
-            pass
+            matrix = [[int(d) for d in row] for row in rows]
+            _cache_put(ck, matrix)
+            return matrix, True
+        except (requests.RequestException, KeyError) as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            body = ""
+            try:
+                body = (e.response.text or "")[:80]   # "Quota exceeded" says it all
+            except Exception:  # noqa: BLE001 -- diagnostics only
+                pass
+            _note_fallback(f"{type(e).__name__}"
+                           + (f":{status}" if status else "")
+                           + (f":{body}" if body else ""))
     n = len(coords)
     matrix = [
         [0 if i == j else int(_haversine_m(coords[i], coords[j])) for j in range(n)]
@@ -604,7 +752,7 @@ def _solve_order_timed(
     start cumul (the departure time) is a free variable the solver picks,
     not a fixed input. That models how a walker actually works: start
     times are flexible, and the walker slides the whole single outing
-    earlier or later so morning walks land before noon and afternoon
+    earlier or later so morning walks finish before noon and afternoon
     walks after it -- one continuous trip across the boundary, not two.
 
     Among all window-satisfying orders it still minimizes distance, then a
@@ -645,11 +793,17 @@ def _solve_order_timed(
     routing.AddDimension(time_idx, 0, 24 * 60, False, "Time")
     time_dim = routing.GetDimensionOrDie("Time")
     for node in range(n):
+        e, l = earliest_min[node], latest_min[node]
+        # contradictory bounds (e.g. an afternoon walk that can't finish
+        # before an early sunset) are trivially infeasible; report it
+        # rather than letting OR-Tools raise a hard "CP Solver fail".
+        if e is not None and l is not None and e > l:
+            return None
         cumul = time_dim.CumulVar(manager.NodeToIndex(node))
-        if latest_min[node] is not None:
-            cumul.SetMax(latest_min[node])
-        if earliest_min[node] is not None:
-            cumul.SetMin(earliest_min[node])
+        if l is not None:
+            cumul.SetMax(l)
+        if e is not None:
+            cumul.SetMin(e)
     # earliest feasible departure -> the naturally-clustered schedule
     routing.AddVariableMinimizedByFinalizer(time_dim.CumulVar(routing.Start(0)))
 
@@ -674,6 +828,14 @@ def _street_geometry(coords_in_order: list[tuple[float, float]]) -> dict | None:
     LineString the browser map draws directly. None on any failure --
     the route itself is already decided; drawing degrades to straight
     lines client-side."""
+    if not WANT_GEOMETRY:
+        # measurement never draws the map: skip the request entirely.
+        # Halves ORS usage per route.
+        return None
+    ck = _cache_key("geometry", coords_in_order)
+    hit = _cache().get(ck)
+    if hit is not None:
+        return hit
     key = _ors_key()
     if not key:
         return None
@@ -685,19 +847,61 @@ def _street_geometry(coords_in_order: list[tuple[float, float]]) -> dict | None:
             timeout=15,
         )
         resp.raise_for_status()
-        return resp.json()["features"][0]["geometry"]
+        geom = resp.json()["features"][0]["geometry"]
+        _cache_put(ck, geom)
+        return geom
     except (requests.RequestException, KeyError, IndexError):
         return None
 
 
 WALK_DURATIONS = (20, 30, 60)  # the products a dog walker actually sells
 WALK_WINDOWS = ("any", "morning", "afternoon")  # how walkers really schedule
-MORNING_START_MIN = 8 * 60     # earliest a morning walk may start (8:00am)
+WORKDAY_START_MIN = 7 * 60     # the walker's day opens at 7:00am
+WORKDAY_END_MIN = 19 * 60      # ...and closes at 7:00pm
+MORNING_START_MIN = WORKDAY_START_MIN  # a morning walk may start from 7:00am
 NOON_MIN = 12 * 60             # the morning/afternoon boundary, absolute minutes
 MED_HANDLING_MIN = 10          # meds are a boolean; if set, the stop takes longer
+DIFFICULTY_STEP_MIN = 5        # each difficulty point = 5 more minutes if the
+DIFFICULTY_ODDS = 0.5          # dog acts up, which happens ~half the time
+RAIN_TRIGGER_MM = 0.2          # a skip_rain dog refuses a walk in >= this rain
+MINIMAL_VISIT_MIN = 10         # ...and gets a quick let-out instead of a walk
 
 
-def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str, Any]:
+def _difficulty_overrun(difficulty: int) -> int:
+    """A difficult dog acts up ~half the time; when it does, its walk runs
+    difficulty * 5 minutes long. Rolled fresh per schedule, like weather --
+    the walker can't know in advance, so it's realized, not planned."""
+    d = int(difficulty or 0)
+    if d > 0 and random.random() < DIFFICULTY_ODDS:
+        return d * DIFFICULTY_STEP_MIN
+    return 0
+
+
+def dog_priority(stop: dict) -> int:
+    """Urgency the walker assigns a dog when the day is tight -- a DERIVED
+    value the model must compute from the dog's attributes, not a given.
+    Deterministic so it can be checked:
+      +2  needs_meds        (medication is time-sensitive)
+      +2  narrow comfort band (max - min <= 30F: a fragile dog with a
+                               small safe-weather window)
+      +1  difficulty >= 3   (eats schedule; do it while there's slack)
+      +1  afternoon window  (constrained timing)
+    Range 0-6."""
+    p = 0
+    if stop.get("needs_meds"):
+        p += 2
+    lo, hi = stop.get("comfort_min_f"), stop.get("comfort_max_f")
+    if lo is not None and hi is not None and (float(hi) - float(lo)) <= 30:
+        p += 2
+    if int(stop.get("difficulty", 0) or 0) >= 3:
+        p += 1
+    if stop.get("walk_window") == "afternoon":
+        p += 1
+    return p
+
+
+def optimize_route(stops: list[dict], start_time: str | None = None,
+                   sunset_min: int | None = None) -> dict[str, Any]:
     """Best transit order through the stops, plus the resulting schedule.
 
     Each stop: {"name", "lat", "lon", "walk_minutes", and optionally
@@ -722,58 +926,89 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
     morning/afternoon walk_window, start_time is IGNORED and the walker
     picks the departure that packs every window into one outing -- the
     chosen start comes back in the result's "start_time".
+
+    sunset_min (minutes since midnight, from check_daylight, optional):
+    no dog is walked after dark, so every walk must END by
+    min(7pm, sunset). If the walks can't all finish in time, feasible is
+    false -- so the same afternoon roster is fine in June and impossible
+    on a short December day.
     """
     if not 2 <= len(stops) <= MAX_STOPS:
         return {"error": f"need 2-{MAX_STOPS} stops, got {len(stops)}"}
 
     windowed = [s for s in stops if s.get("walk_window", "any") != "any"]
+    use_timed = bool(windowed) or sunset_min is not None
 
     coords = [(float(s["lat"]), float(s["lon"])) for s in stops]
     matrix, real_streets = _walking_matrix(coords)
 
-    # walk windows (morning = walk starts 8:00am-noon, afternoon = walk
-    # starts at/after noon) turn the plain TSP into a time-windowed solve
-    # WHERE THE WALKER CHOOSES THE DEPARTURE: start times are flexible, so
-    # the solver slides one clustered outing across the noon boundary.
-    # When no departure+order fits every window, infeasibility is honest.
-    # A solver-chosen departure overrides any caller start_time here.
-    if windowed:
+    # roll difficulty ONCE per stop, so the solver's schedule and the
+    # rendered timeline agree; a difficult dog's overrun lengthens its
+    # walk and can push a later walk past a window or past sunset.
+    extra = [_difficulty_overrun(s.get("difficulty", 0)) for s in stops]
+
+    # A TIMED solve runs whenever the day carries a time constraint: per-dog
+    # walk windows (morning ENDS by noon, afternoon starts at/after noon)
+    # and/or a sunset cutoff (every walk must END before dark). The walker
+    # CHOOSES the departure -- start times are flexible -- so the solver
+    # slides one clustered outing to satisfy every bound, or reports honest
+    # infeasibility. A solver-chosen departure overrides any caller start_time.
+    if use_timed:
+        day_end = WORKDAY_END_MIN
+        if sunset_min is not None:
+            day_end = min(day_end, int(sunset_min))
         service = [
             int(s.get("buffer_minutes", 0))
             + (MED_HANDLING_MIN if s.get("needs_meds") else 0)
             + int(s.get("walk_minutes", 0))
-            for s in stops
+            + extra[i]
+            for i, s in enumerate(stops)
         ]
-        # a walk_window is about when the WALK starts, and walk_start =
-        # arrival + buffer + meds. Bound arrival (absolute minutes) so
-        # walk_start lands in the right half of the day.
+        # bounds are on ARRIVAL (absolute minutes); walk_start = arrival +
+        # buffer + meds, and the walk ENDS walk_minutes (+ any difficulty
+        # overrun) later.
         earliest: list[int | None] = []
         latest: list[int | None] = []
-        for s in stops:
-            w = s.get("walk_window", "any")
+        for i, s in enumerate(stops):
             pre = int(s.get("buffer_minutes", 0)) + (
                 MED_HANDLING_MIN if s.get("needs_meds") else 0)
+            walk = int(s.get("walk_minutes", 0)) + extra[i]
+            w = s.get("walk_window", "any")
+            # sunset/workday ceiling: the WALK must END by day_end
+            l_day = (day_end - pre - walk) if sunset_min is not None else None
             if w == "morning":
-                earliest.append(MORNING_START_MIN - pre)  # walk_start >= 8:00
-                latest.append(NOON_MIN - pre)              # walk_start <= noon
+                # the WALK must end by noon, so the latest arrival is noon
+                # minus prep minus the walk itself. Until 2026-09-17 this
+                # bounded the arrival at noon, which let a 60-minute
+                # "morning" walk run 11:35-12:35 and made the deliberately
+                # impossible morning-overbook scenario come back feasible.
+                e, l = MORNING_START_MIN - pre, NOON_MIN - pre - walk
             elif w == "afternoon":
-                earliest.append(NOON_MIN - pre)            # walk_start >= noon
-                latest.append(None)
-            else:
-                earliest.append(None)
-                latest.append(None)
+                e, l = NOON_MIN - pre, None
+            else:  # any
+                e = (WORKDAY_START_MIN - pre) if sunset_min is not None else None
+                l = None
+            if l_day is not None:
+                l = l_day if l is None else min(l, l_day)
+            earliest.append(e)
+            latest.append(l)
         solved = _solve_order_timed(
             matrix, service, earliest, latest, WALK_SPEED_M_PER_MIN
         )
         if solved is None:
+            reason = "no single outing fits every morning/afternoon window"
+            if sunset_min is not None:
+                reason = ("no single outing fits every walk window and "
+                          "finishes before dark")
             due = [
-                {"stop": s["name"], "walk_window": s["walk_window"]}
+                {"stop": s["name"], "walk_window": s.get("walk_window", "any")}
                 for s in windowed
             ]
             return {
                 "feasible": False,
-                "reason": "no single outing fits every morning/afternoon window",
+                "reason": reason,
                 "windows": due,
+                "sunset_min": sunset_min,
                 "uses_real_streets": real_streets,
             }
         order, departure = solved
@@ -811,11 +1046,11 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
     timeline, t = [], 0.0
     for pos, (a, b) in enumerate(zip(loop, loop[1:])):
         leg = matrix[a][b] / WALK_SPEED_M_PER_MIN
-        # windowed routes are scheduled by the solver in whole minutes;
-        # round transit the same way so the displayed clock times match
-        # the arrival bounds it enforced (else 9.996 min reads as 11:59
-        # for a walk the solver placed at 12:00).
-        t += round(leg) if windowed else leg
+        # timed routes are scheduled by the solver in whole minutes; round
+        # transit the same way so the displayed clock times match the
+        # arrival bounds it enforced (else 9.996 min reads as 11:59 for a
+        # walk the solver placed at 12:00).
+        t += round(leg) if use_timed else leg
         if b == 0:
             timeline.append({"stop": stops[0]["name"], "arrive": clock(t)})
             break
@@ -823,25 +1058,34 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
         walk = int(stops[b].get("walk_minutes", 0))
         buffer = int(stops[b].get("buffer_minutes", 0))
         meds = MED_HANDLING_MIN if stops[b].get("needs_meds") else 0
+        xtra = extra[b]  # difficulty overrun realized for this walk
         entry = {
             "stop": stops[b]["name"],
             "arrive": clock(arrive),
             # meds are administered on arrival; the walk follows the
-            # prep + med handling
+            # prep + med handling. A difficult dog's overrun lengthens
+            # the walk (and everything after it).
             "walk_start": clock(t + buffer + meds),
-            "walk_end": clock(t + buffer + meds + walk),
-            "walk_minutes": walk,
+            "walk_end": clock(t + buffer + meds + walk + xtra),
+            "walk_minutes": walk + xtra,
         }
         if buffer:
             entry["buffer_minutes"] = buffer
         if meds:
             entry["med_minutes"] = meds
             entry["needs_meds"] = True
+        if xtra:
+            entry["difficulty_extra_min"] = xtra
+        if stops[b].get("skip_rain"):
+            entry["skip_rain"] = True
+        entry["priority"] = dog_priority(stops[b])
         window = stops[b].get("walk_window", "any")
         if window != "any" and start_time is not None:
             noon = NOON_MIN - start_min()
             walk_start_min = t + buffer + meds
-            met = (walk_start_min <= noon) if window == "morning" else (
+            # morning: the walk must FINISH by noon. afternoon: it must
+            # START at or after noon.
+            met = (walk_start_min + walk + xtra <= noon) if window == "morning" else (
                 walk_start_min >= noon)
             entry["walk_window"] = window
             entry["window_met"] = met
@@ -850,7 +1094,7 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
             if stops[b].get(key) is not None:
                 entry[key] = float(stops[b][key])
         timeline.append(entry)
-        t += buffer + meds + walk
+        t += buffer + meds + walk + xtra
 
     dog_min = sum(int(s.get("walk_minutes", 0)) for s in stops)
     buffer_min = sum(int(s.get("buffer_minutes", 0)) for s in stops)
@@ -859,6 +1103,7 @@ def optimize_route(stops: list[dict], start_time: str | None = None) -> dict[str
         "feasible": all_met,
         "order": [stops[i]["name"] for i in order],
         "start_time": start_time,
+        "sunset_min": sunset_min,
         "legs": legs,
         "timeline": timeline,
         "total_walk_meters": total_m,
@@ -939,11 +1184,39 @@ OPTIMIZE_ROUTE_SCHEMA = {
                                 "enum": list(WALK_WINDOWS),
                                 "description": (
                                     "when to walk this dog: any (default), "
-                                    "morning (walk starts 8:00am-noon), or "
+                                    "morning (walk starts no earlier than "
+                                    "7:00am and FINISHES by noon), or "
                                     "afternoon (walk starts at/after noon). "
                                     "The walker chooses the departure to fit "
                                     "them all in one outing; windows that "
                                     "can't be arranged -> feasible=false."
+                                ),
+                            },
+                            "difficulty": {
+                                "type": "integer", "minimum": 0, "maximum": 5,
+                                "description": (
+                                    "how badly-behaved this dog is (0-5). Each "
+                                    "point is 5 minutes; ~half the time the dog "
+                                    "acts up and its walk runs difficulty*5 "
+                                    "minutes long, which the schedule realizes."
+                                ),
+                            },
+                            "skip_rain": {
+                                "type": "boolean",
+                                "description": (
+                                    "true if this dog won't walk in the rain. "
+                                    "If its walk window is wet, give it a short "
+                                    "minimal visit in submit_plan instead of "
+                                    "the full walk."
+                                ),
+                            },
+                            "priority": {
+                                "type": "integer", "minimum": 0, "maximum": 6,
+                                "description": (
+                                    "YOU compute this urgency score for each "
+                                    "dog and pass it: +2 needs_meds, +2 comfort "
+                                    "band <= 30F wide, +1 difficulty >= 3, +1 "
+                                    "afternoon window. Range 0-6."
                                 ),
                             },
                         },
@@ -961,6 +1234,15 @@ OPTIMIZE_ROUTE_SCHEMA = {
                         "(returned as start_time)."
                     ),
                 },
+                "sunset_min": {
+                    "type": "integer", "minimum": 0, "maximum": 1440,
+                    "description": (
+                        "sunset in minutes since midnight, from "
+                        "check_daylight. Every walk must END before it (or "
+                        "7pm, whichever is earlier); pass it whenever a dog "
+                        "may be walked in the afternoon."
+                    ),
+                },
             },
             "required": ["stops"],
             "additionalProperties": False,
@@ -976,6 +1258,7 @@ OPTIMIZE_ROUTE_SCHEMA = {
 REGISTRY: dict[str, tuple[Any, dict]] = {
     "check_weather": (check_weather, CHECK_WEATHER_SCHEMA),
     "check_terrain": (check_terrain, CHECK_TERRAIN_SCHEMA),
+    "check_daylight": (check_daylight, CHECK_DAYLIGHT_SCHEMA),
     "geocode_addresses": (geocode_addresses, GEOCODE_SCHEMA),
     "optimize_route": (optimize_route, OPTIMIZE_ROUTE_SCHEMA),
 }

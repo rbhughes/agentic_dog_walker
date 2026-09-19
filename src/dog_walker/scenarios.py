@@ -132,6 +132,37 @@ SCENARIOS: dict[str, dict] = {
             ],
         },
     },
+    # --- the long-horizon stress test: many dogs, every constraint at
+    # once, so success needs a long chain of dependent tool calls to all
+    # go right. feasibility is not fixed -- it turns on today's sunset
+    # and the difficulty rolls -- so it's graded on relay-fidelity
+    # (reaching a validated plan the auditors accept), not a set answer.
+    "grand-tour": {
+        "title": "Grand tour (6 dogs, every constraint, a full day)",
+        "expected_feasible": None,
+        "tags": ["stress", "window", "daylight", "terrain", "weather",
+                 "difficulty", "rain", "meds"],
+        "roster": {
+            "start_address": _WRIGLEY,
+            "start_time": "09:00",
+            "pets": [
+                {"name": "Daisy", "address": _LPZ, "walk_minutes": 30,
+                 "walk_window": "afternoon", "comfort_min_f": 45,
+                 "comfort_max_f": 95},
+                {"name": "Rex", "address": _CLARK, "walk_minutes": 60,
+                 "walk_window": "afternoon", "difficulty": 4},
+                {"name": "Wilbur", "address": _BROADWAY, "walk_minutes": 30,
+                 "walk_window": "afternoon", "max_relief_m": 30,
+                 "comfort_min_f": -10, "comfort_max_f": 70},
+                {"name": "Mochi", "address": _BUCKINGHAM, "walk_minutes": 20,
+                 "walk_window": "morning", "needs_meds": True},
+                {"name": "Peanut", "address": _SHEDD, "walk_minutes": 30,
+                 "walk_window": "afternoon", "difficulty": 3, "skip_rain": True},
+                {"name": "Pip", "address": _MILLENNIUM, "walk_minutes": 20,
+                 "walk_window": "afternoon", "max_relief_m": 80},
+            ],
+        },
+    },
 }
 
 

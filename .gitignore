@@ -214,3 +214,5 @@ runs/
 measurements/
 .DS_Store
 **/.DS_Store
+data/route_cache.json
+data/route_cache.tmp
