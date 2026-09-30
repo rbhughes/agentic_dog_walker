@@ -1,0 +1,34 @@
+# Unit tests, on every push and PR. No model is called: the agent tests
+# monkeypatch `agent.chat` with scripted replies, so the suite needs no
+# API key, spends nothing, and finishes in about a second.
+#
+# pytest is in the dev dependency group, which `uv sync` installs by
+# default. Collection is governed by testpaths = ["tests"] in pyproject,
+# so the older legacy/ suites are deliberately not run here; pytest's own
+# addopts (-v, --tb=short, --strict-markers) set the output format.
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.1.0
+
+      - name: Install
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest
